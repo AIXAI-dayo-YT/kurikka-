@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COSMIC CLICKER - 宇宙結晶採掘ゲーム</title>
+    <title>COSMIC CLICKER - 完全サーバーレス・リアルマルチプレイ</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
     
     <style>
@@ -49,7 +49,7 @@
             border-left: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        /* --- 左パネル（ゲームメイン） --- */
+        /* --- 左パネル（メインエリア） --- */
         .game-title {
             font-size: 24px;
             letter-spacing: 4px;
@@ -179,13 +179,13 @@
             opacity: 1;
         }
 
-        /* 画面左下：オンライン風ログ */
+        /* 画面左下：オンラインログ */
         .log-panel {
             position: absolute;
             bottom: 20px;
             left: 20px;
-            width: 310px;
-            height: 125px;
+            width: 280px;
+            height: 115px;
             background: rgba(9, 10, 16, 0.85);
             border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 6px;
@@ -205,8 +205,6 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             padding-bottom: 2px;
             margin-bottom: 2px;
-            font-size: 10px;
-            letter-spacing: 1px;
         }
 
         .log-item {
@@ -347,9 +345,18 @@
             padding: 3px 8px;
             border-radius: 12px;
             font-weight: bold;
+        }
+
+        .status-badge.online {
             background: rgba(34, 197, 94, 0.15);
             color: #22c55e;
             border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .status-badge.syncing {
+            background: rgba(234, 179, 8, 0.15);
+            color: #eab308;
+            border: 1px solid rgba(234, 179, 8, 0.3);
         }
 
         .ranking-list {
@@ -581,13 +588,13 @@
     <div class="left-panel">
         <h1 class="game-title tech-font">COSMIC CLICKER</h1>
         
-        <!-- 全銀河協力ミッション -->
+        <!-- 全銀河協力イベント -->
         <div class="coop-container">
-            <div id="coop-title" class="coop-title tech-font">COOP MISSION: PHASE 1</div>
+            <div class="coop-title tech-font">GALACTIC MISSION: COOP CLICK EVENT</div>
             <div class="coop-bar-bg">
                 <div id="coop-bar" class="coop-bar-fill"></div>
             </div>
-            <div id="coop-stats" class="coop-stats tech-font">銀河累計クリック: 0 / 10,000 (0.00%)</div>
+            <div id="coop-stats" class="coop-stats tech-font">銀河累計クリック: 0 / 1,000,000 (0.00%)</div>
         </div>
 
         <div class="stats-container">
@@ -633,8 +640,8 @@
             <!-- ランキングタブ -->
             <div id="tab-ranking" class="tab-pane">
                 <div class="ranking-header">
-                    <h3 style="font-size: 15px;">銀河採掘ランキング</h3>
-                    <span id="connection-status" class="status-badge">SIMULATED ONLINE</span>
+                    <h3 style="font-size: 15px;" id="ranking-title">銀河採掘ランキング (0人接続中)</h3>
+                    <span id="connection-status" class="status-badge syncing">CONNECTING...</span>
                 </div>
                 <div id="ranking-list" class="ranking-list"></div>
             </div>
@@ -651,7 +658,7 @@
                     <input type="text" id="username-input" class="text-input" maxlength="15" onchange="changeUsername(this.value)">
                 </div>
 
-                <h3 style="margin-bottom: 10px; font-size: 14px;">採掘統計</h3>
+                <h3 style="margin-bottom: 10px; font-size: 14px;">ローカルデータ統計</h3>
                 <div class="stats-list">
                     <div class="stats-row">
                         <span class="stats-label">累計採掘クリスタル</span>
@@ -683,11 +690,19 @@
         <div id="notif-message" class="notif-msg">実績を解除しました</div>
     </div>
 
-    <!-- メインスクリプト -->
     <script>
         // ==========================================
-        // GAME STATE
+        // 🌐 GLOBAL SERVERLESS DATABASE CONFIG
         // ==========================================
+        // kvdb.io のパブリックバケット機能を使用。事前登録・設定は一切不要。
+        // 同じURLを叩くプレイヤー同士が自動的に同期されます。
+        const DATABASE_URL = "https://kvdb.io/Kmsj6z8u8xHj7qK4fN8Y2Z/cosmic_shared_v4";
+
+        // プレイヤーIDと名前
+        let userId = getOrCreateUserId();
+        let username = getOrCreateUsername();
+
+        // ゲームステート
         let crystals = 0;
         let totalCrystals = 0;
         let totalClicks = 0;
@@ -695,25 +710,17 @@
         let baseClickValue = 1;
         let clickValueUpgrades = 0;
         let globalCpsMultiplier = 1;
-        let coopCpsMultiplier = 1; // 協力イベント報酬倍率
 
         let buffTimer = 0;
         let buffMultiplier = 1;
         let lastUpdateTime = Date.now();
 
-        // ニックネーム
-        let username = getOrCreateUsername();
+        // 協力イベント
+        const COOP_GOAL = 1000000;
+        let localNewClicks = 0; // 今回の同期までにプレイヤーが手動でクリックした数
+        let pendingEventText = ""; // 次の同期で送信する行動ログ
 
-        // 協力型イベント目標設定
-        const coopPhases = [
-            { level: 1, goal: 10000, mult: 1.1, title: "COOP MISSION: PHASE 1 (CPS 1.1倍)" },
-            { level: 2, goal: 50000, mult: 1.25, title: "COOP MISSION: PHASE 2 (CPS 1.25倍)" },
-            { level: 3, goal: 200000, mult: 1.5, title: "COOP MISSION: PHASE 3 (CPS 1.5倍)" },
-            { level: 4, goal: 1000000, mult: 2.0, title: "COOP MISSION: FINAL PHASE (CPS 2.0倍)" }
-        ];
-        let currentCoopClicks = 0;
-
-        // 施設
+        // 施設データ
         let buildings = [
             { id: 'miner', name: '自動採掘クローン', cost: 15, baseCost: 15, cps: 0.1, count: 0, multiplier: 1, desc: 'クローンが代わりに手掘りで作業します。' },
             { id: 'drill', name: '採掘ドリル', cost: 100, baseCost: 100, cps: 1, count: 0, multiplier: 1, desc: '回転ドリルで結晶を自動破壊します。' },
@@ -724,7 +731,7 @@
             { id: 'timemachine', name: 'タイムマシン', cost: 20000000, baseCost: 20000000, cps: 7800, count: 0, multiplier: 1, desc: '未来で発掘されたクリスタルを持ってきます。' }
         ];
 
-        // 強化（アップグレード）
+        // 強化
         let upgrades = [
             { id: 'up_click_1', name: '強化グローブ', cost: 100, purchased: false, type: 'click_add', value: 1, desc: 'クリックパワーが恒久的に +1' },
             { id: 'up_click_2', name: '精密ピッケル', cost: 500, purchased: false, type: 'click_add', value: 5, desc: 'クリックパワーが恒久的に +5' },
@@ -741,7 +748,7 @@
         let achievements = [
             { id: 'ach_1', name: '駆け出し採掘者', desc: '手動クリックを10回行う。', unlocked: false, check: () => totalClicks >= 10 },
             { id: 'ach_2', name: '最初の労働者', desc: '自動採掘クローンを1個購入する。', unlocked: false, check: () => getBuildingCount('miner') >= 1 },
-            { id: 'ach_3', name: '中堅工場', desc: '施設を累計15個購入する。', unlocked: false, check: () => getTotalBuildings() >= 15 },
+            { id: 'ach_3', name: '中堅工場', desc: '施設を累計15個購入する', unlocked: false, check: () => getTotalBuildings() >= 15 },
             { id: 'ach_4', name: '宇宙長者', desc: '累計で 10,000 クリスタルを発掘。', unlocked: false, check: () => totalCrystals >= 10000 },
             { id: 'ach_5', name: '隕石ハンター', desc: '宇宙隕石を初めてクリックする。', unlocked: false, check: () => clickedMeteors >= 1 },
             { id: 'ach_6', name: '自動化の極み', desc: '秒間生産量(CPS)が 1,000 を突破。', unlocked: false, check: () => getCps() >= 1000 },
@@ -749,18 +756,7 @@
         ];
 
         // ==========================================
-        // 🤖 疑似オンラインライバルAIたちの定義
-        // ==========================================
-        let aiPlayers = [
-            { id: 'ai_1', name: 'StarMiner_Pro', crystals: 0, totalCrystals: 0, clicks: 0, cps: 0.1, playStyle: 'building' },
-            { id: 'ai_2', name: 'HyperClicker', crystals: 0, totalCrystals: 0, clicks: 0, cps: 0, playStyle: 'click' },
-            { id: 'ai_3', name: 'MeteorSeeker', crystals: 0, totalCrystals: 0, clicks: 0, cps: 0.5, playStyle: 'balanced' },
-            { id: 'ai_4', name: 'QuantumBoy', crystals: 0, totalCrystals: 0, clicks: 0, cps: 0, playStyle: 'balanced' },
-            { id: 'ai_5', name: 'NebulaExplorer', crystals: 0, totalCrystals: 0, clicks: 0, cps: 0, playStyle: 'lazy' }
-        ];
-
-        // ==========================================
-        // CORE ENGINE & MAIN LOOPS
+        // 🚀 起動処理
         // ==========================================
         window.onload = function() {
             document.getElementById('username-input').value = username;
@@ -770,16 +766,14 @@
             renderAchievements();
             setupEventListeners();
             scheduleMeteor();
-            
-            // AIシミュレータ初期ログイン演出
-            addLogToUI("SYSTEM", "銀河ネットワークに安全に接続しました (暗号化通信)");
-            setTimeout(() => addLogToUI("SYSTEM", "オンライン採掘者同期完了。ライバル5人が採掘を開始しました。"), 1000);
 
-            // 自動セーブ（15秒ごと）
-            setInterval(() => saveGame(false), 15000);
+            // 初期データベース同期を実行
+            syncWithDatabase(true, "宇宙空間にログインしました");
 
-            // AIの1秒周期でのアップデート処理
-            setInterval(updateAI, 1000);
+            // 15秒ごとに定期的にサーバーと同期
+            setInterval(() => {
+                syncWithDatabase();
+            }, 15000);
 
             requestAnimationFrame(gameLoop);
         };
@@ -791,7 +785,7 @@
                 crystals += power;
                 totalCrystals += power;
                 totalClicks++;
-                currentCoopClicks++; // 協力クリックの増加
+                localNewClicks++; // 次の同期パケット用のクリック数カウンタ
 
                 showPopup(`+${formatNumber(power)}`, e.clientX, e.clientY);
                 updateUI();
@@ -803,7 +797,6 @@
             const dt = (now - lastUpdateTime) / 1000;
             lastUpdateTime = now;
 
-            // バフ管理
             if (buffTimer > 0) {
                 buffTimer -= dt;
                 if (buffTimer <= 0) {
@@ -816,7 +809,6 @@
                 }
             }
 
-            // 生産処理
             const currentCps = getCps();
             const gain = currentCps * dt;
             crystals += gain;
@@ -829,293 +821,175 @@
         }
 
         // ==========================================
-        // 🤖 SIMULATED MULTIPLAY LOGIC
+        // 🌐 CLIENT-SERVER COOPERATION (kvdb.io REST API)
         // ==========================================
-        function updateAI() {
-            const dt = 1.0; // 1秒ごとの動作
-
-            aiPlayers.forEach(p => {
-                // 1. 各AIの基本CPSの反映
-                const gain = p.cps * dt;
-                p.crystals += gain;
-                p.totalCrystals += gain;
-
-                // 2. プレイスタイルに合わせた行動
-                if (p.playStyle === 'click') {
-                    // クリッカー型: 毎秒確実に数クリックを重ねる
-                    const clicks = Math.floor(Math.random() * 6) + 3; // 3-8クリック/s
-                    p.clicks += clicks;
-                    currentCoopClicks += clicks; // 協力クリックにも加算
-
-                    // 進行度に応じた疑似クリック力でクリスタルを追加
-                    const clickPower = 1 + Math.floor(p.totalCrystals / 300);
-                    p.crystals += clicks * clickPower;
-                    p.totalCrystals += clicks * clickPower;
-                } else {
-                    // 他のスタイルも低確率でクリックを行う
-                    if (Math.random() < 0.25) {
-                        p.clicks += 1;
-                        currentCoopClicks += 1;
-                        p.crystals += 1 + Math.floor(p.totalCrystals / 1000);
-                        p.totalCrystals += 1 + Math.floor(p.totalCrystals / 1000);
-                    }
+        async function fetchGlobalData() {
+            try {
+                const response = await fetch(DATABASE_URL);
+                if (response.status === 404) {
+                    // データが存在しない場合、初期化オブジェクトを返す
+                    return { players: {}, logs: [], coopClicks: 0 };
                 }
-
-                // 3. AIが稼いだ資金で施設を購入（CPSを増やす）
-                if (Math.random() < 0.2) {
-                    // 施設のリストから、AIが買えそうな最高額のものを探す
-                    for (let i = buildings.length - 1; i >= 0; i--) {
-                        const b = buildings[i];
-                        // AI用の疑似的な所持数からコストを逆算
-                        const aiCount = Math.floor(p.cps / b.cps);
-                        const aiCost = b.baseCost * Math.pow(1.15, aiCount);
-
-                        if (p.crystals >= aiCost) {
-                            p.crystals -= aiCost;
-                            p.cps += b.cps;
-                            addLogToUI(p.name, `新しい ${b.name} を起動しました！`);
-                            break;
-                        }
-                    }
-                }
-
-                // 4. AIの宇宙チャットランダム発言 (1.5%の確率)
-                if (Math.random() < 0.015) {
-                    const chats = [
-                        "手動クリックきつくなってきた…自動化施設増やそう ⚡",
-                        "協力ミッションもう少しでレベルアップかな？",
-                        "隕石探すの楽しすぎる！",
-                        "みんな今クリスタルどのくらい溜まった？ 💎",
-                        "FRENZYバフ引き当てた！一気にランキング上がるぞ！",
-                        "タイムマシンの価格高すぎない？ 😂",
-                        "地道に掘るのもロマンがある🚀",
-                        "重力濃縮器の効率めちゃくちゃ良いからおすすめ！"
-                    ];
-                    const randomPhrase = chats[Math.floor(Math.random() * chats.length)];
-                    addLogToUI(p.name, randomPhrase);
-                }
-
-                // 5. AIの隕石ランダム回収イベント (1%の確率)
-                if (Math.random() < 0.01) {
-                    p.crystals += p.cps * 120; // 2分間分のボーナス
-                    addLogToUI(p.name, "漂流する高純度隕石の回収に成功！ボーナス獲得！ 🌠");
-                }
-            });
-
-            // 協力ミッションとランキングのUI表示を更新
-            updateCoopUI();
-            updateRankingUI();
+                if (!response.ok) throw new Error("HTTP-Error: " + response.status);
+                return await response.json();
+            } catch (e) {
+                console.warn("データベースからの受信に失敗しました(オフラインモード動作):", e);
+                return null;
+            }
         }
 
-        // ランキングの並び替えと描画
-        function updateRankingUI() {
-            // プレイヤー自身を統合したランキング用リストの作成
-            const allPlayers = aiPlayers.map(p => ({
-                id: p.id,
-                name: p.name,
-                crystals: p.crystals,
-                cps: p.cps,
-                isSelf: false
+        async function syncWithDatabase(isForceEvent = false, customEventText = "") {
+            const statusBadge = document.getElementById('connection-status');
+            statusBadge.className = 'status-badge syncing';
+            statusBadge.textContent = 'SYNCING...';
+
+            let data = await fetchGlobalData();
+            if (!data) {
+                // データベース取得エラー時は表示だけオフライン表記にする
+                statusBadge.className = 'status-badge offline';
+                statusBadge.textContent = 'CONNECTION ERR';
+                return;
+            }
+
+            const now = Date.now();
+
+            // 1. 自身のデータマージ
+            if (!data.players) data.players = {};
+            data.players[userId] = {
+                username: username,
+                crystals: Math.floor(crystals),
+                cps: getCps(),
+                lastActive: now
+            };
+
+            // 2. 放置プレイヤー(2分以上無活動)の削除
+            for (const uid in data.players) {
+                if (now - data.players[uid].lastActive > 120000) {
+                    delete data.players[uid];
+                }
+            }
+
+            // 3. 協力クリックへの加算
+            if (data.coopClicks === undefined) data.coopClicks = 0;
+            data.coopClicks += localNewClicks;
+            localNewClicks = 0; // 加算したのでローカルはリセット
+
+            // 4. イベントログの格納
+            if (!data.logs) data.logs = [];
+            
+            // 手動イベント、または直前までに発生した保留中ログを適用
+            let logText = "";
+            if (isForceEvent && customEventText) {
+                logText = customEventText;
+            } else if (pendingEventText) {
+                logText = pendingEventText;
+                pendingEventText = "";
+            }
+
+            if (logText) {
+                data.logs.unshift({
+                    username: username,
+                    text: logText,
+                    timestamp: now
+                });
+                if (data.logs.length > 8) data.logs = data.logs.slice(0, 8);
+            }
+
+            // 5. データベースにポストバック
+            try {
+                await fetch(DATABASE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                statusBadge.className = 'status-badge online';
+                statusBadge.textContent = 'ONLINE (SHARED)';
+            } catch (e) {
+                console.error("送信に失敗しました:", e);
+                statusBadge.className = 'status-badge offline';
+                statusBadge.textContent = 'SYNC FAIL';
+            }
+
+            // 6. UIを新データで再構築
+            updateOnlineUI(data);
+        }
+
+        // 行動ログをキューに追加（次の15秒周期の同タイミングで送信されるため、過剰な通信を防止）
+        function queueActivityLog(text) {
+            pendingEventText = text;
+        }
+
+        // オンラインデータをもとにUIを書き換える
+        function updateOnlineUI(data) {
+            // 1. ランキング表示の構築
+            const rankingList = document.getElementById('ranking-list');
+            rankingList.innerHTML = '';
+
+            const playersArr = Object.keys(data.players).map(uid => ({
+                userId: uid,
+                username: data.players[uid].username || "Unnamed",
+                crystals: data.players[uid].crystals || 0,
+                cps: data.players[uid].cps || 0
             }));
 
-            allPlayers.push({
-                id: 'player_self',
-                name: username,
-                crystals: crystals,
-                cps: getCps(),
-                isSelf: true
-            });
+            // クリスタル数基準でソート
+            playersArr.sort((a, b) => b.crystals - a.crystals);
 
-            // クリスタル数を基準に降順ソート
-            allPlayers.sort((a, b) => b.crystals - a.crystals);
-
-            const container = document.getElementById('ranking-list');
-            container.innerHTML = '';
-
-            allPlayers.forEach((p, idx) => {
+            playersArr.slice(0, 10).forEach((p, idx) => {
                 const el = document.createElement('div');
-                el.className = `ranking-item ${p.isSelf ? 'self' : ''}`;
+                el.className = `ranking-item ${p.userId === userId ? 'self' : ''}`;
                 
                 const isTop = idx < 3;
                 el.innerHTML = `
                     <div class="rank-number ${isTop ? 'top-rank' : ''} tech-font">#${idx + 1}</div>
-                    <div class="rank-name">${p.name}</div>
+                    <div class="rank-name">${p.username}</div>
                     <div class="rank-values">
                         <div class="rank-crystals tech-font">${formatNumber(p.crystals)}</div>
                         <div class="rank-cps tech-font">${formatNumber(p.cps)}/s</div>
                     </div>
                 `;
-                container.appendChild(el);
+                rankingList.appendChild(el);
             });
-        }
 
-        // 協力ミッションUIの更新
-        function updateCoopUI() {
-            // 現在どの段階（Phase）にいるか特定する
-            let activePhase = coopPhases[0];
-            let levelBonus = 1.0;
+            // ランキングタイトルに現在の接続人数を反映
+            const onlineCount = playersArr.length;
+            document.getElementById('ranking-title').textContent = `銀河採掘ランキング (${onlineCount}人接続中)`;
 
-            for (let i = 0; i < coopPhases.length; i++) {
-                const phase = coopPhases[i];
-                if (currentCoopClicks >= phase.goal) {
-                    levelBonus = phase.mult;
-                    // 次のレベルがあればそれを目標にする
-                    if (coopPhases[i + 1]) {
-                        activePhase = coopPhases[i + 1];
-                    } else {
-                        activePhase = phase; // カンスト
-                    }
-                }
-            }
-
-            // 新たに適用された倍率を反映
-            coopCpsMultiplier = levelBonus;
-
+            // 2. 協力イベントゲージの更新
+            const currentCoopClicks = data.coopClicks || 0;
             const bar = document.getElementById('coop-bar');
-            const percent = Math.min(100, (currentCoopClicks / activePhase.goal) * 100);
+            const percent = Math.min(100, (currentCoopClicks / COOP_GOAL) * 100);
             bar.style.width = `${percent}%`;
+            document.getElementById('coop-stats').textContent = `銀河累計クリック: ${currentCoopClicks.toLocaleString()} / ${COOP_GOAL.toLocaleString()} (${percent.toFixed(2)}%)`;
 
-            document.getElementById('coop-title').textContent = activePhase.title;
-            document.getElementById('coop-stats').textContent = `宇宙累計協力クリック: ${currentCoopClicks.toLocaleString()} / ${activePhase.goal.toLocaleString()} (${percent.toFixed(2)}%)`;
-        }
-
-        // ログエリアへのログ追加
-        function addLogToUI(user, text) {
-            const container = document.getElementById('log-content');
-            const item = document.createElement('div');
-            item.className = 'log-item';
-            
-            // システム通知とAIメッセージで色分け
-            let prefixColor = '#00f2fe';
-            if (user === "SYSTEM") {
-                prefixColor = '#ff007f';
-            } else if (user === username) {
-                prefixColor = '#c084fc';
-            }
-            
-            item.innerHTML = `<strong style="color: ${prefixColor};">${user}</strong>: ${text}`;
-            container.appendChild(item);
-
-            // ログの表示行数を最大6件に制限して、メモリとスクロールを安定化
-            while (container.childNodes.length > 6) {
-                container.removeChild(container.firstChild);
-            }
-        }
-
-        // ==========================================
-        // UI & CONTROLS
-        // ==========================================
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
-
-            const targetBtn = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
-            if (targetBtn) targetBtn.classList.add('active');
-
-            const targetPane = document.getElementById(`tab-${tabId}`);
-            if (targetPane) targetPane.classList.add('active');
-        }
-
-        function buyBuilding(id) {
-            const b = buildings.find(x => x.id === id);
-            if (!b || crystals < b.cost) return;
-
-            crystals -= b.cost;
-            b.count++;
-            b.cost = Math.floor(b.baseCost * Math.pow(1.15, b.count));
-
-            renderBuildings();
-            updateUI();
-            
-            // 高額施設購入時のみログに送信
-            if (b.cost > 300) {
-                addLogToUI(username, `テクノロジー「${b.name}」を購入・アップグレードしました！`);
-            }
-        }
-
-        function buyUpgrade(id) {
-            const u = upgrades.find(x => x.id === id);
-            if (!u || u.purchased || crystals < u.cost) return;
-
-            crystals -= u.cost;
-            u.purchased = true;
-
-            if (u.type === 'click_add') {
-                clickValueUpgrades += u.value;
-            } else if (u.type === 'building_mult') {
-                const target = buildings.find(b => b.id === u.targetId);
-                if (target) target.multiplier *= u.value;
-            } else if (u.type === 'global_mult') {
-                globalCpsMultiplier *= u.value;
+            if (currentCoopClicks >= COOP_GOAL) {
+                globalCpsMultiplier = 1.5; // イベント達成で全員1.5倍ブースト
             }
 
-            renderBuildings();
-            renderUpgrades();
-            updateUI();
+            // 3. アクティビティログの更新
+            const logContent = document.getElementById('log-content');
+            logContent.innerHTML = '';
             
-            addLogToUI(username, `技術研究「${u.name}」を実用化しました。全生産ネットワークが強化されます。`);
-        }
-
-        function changeUsername(newVal) {
-            if (!newVal || newVal.trim() === '') return;
-            const oldName = username;
-            username = newVal.trim();
-            localStorage.setItem('cosmic_clicker_username', username);
-            addLogToUI("SYSTEM", `採掘者名を [${oldName}] から [${username}] に更新しました`);
-            updateRankingUI();
-        }
-
-        // --- 宇宙隕石 ---
-        function spawnMeteor() {
-            if (document.querySelector('.meteor')) return;
-            const meteor = document.createElement('div');
-            meteor.className = 'meteor';
-            const x = Math.random() * (window.innerWidth - 100) + 50;
-            const y = Math.random() * (window.innerHeight - 200) + 70;
-            meteor.style.left = `${x}px`;
-            meteor.style.top = `${y}px`;
-
-            meteor.addEventListener('click', (e) => {
-                e.stopPropagation();
-                clickedMeteors++;
-                meteor.remove();
-
-                if (Math.random() < 0.5) {
-                    const bonus = Math.max(50, getCps() * 180);
-                    crystals += bonus;
-                    totalCrystals += bonus;
-                    showPopup(`隕石回収! +${formatNumber(bonus)}`, e.clientX, e.clientY, '#ff007f');
-                    addLogToUI(username, "漂流する高純度隕石の回収に成功！大量のエネルギーを抽出しました。 🌠");
-                } else {
-                    buffTimer = 15;
-                    buffMultiplier = 3;
-                    document.getElementById('crystal-btn').classList.add('frenzy-active');
-                    document.getElementById('buff-timer').classList.add('active');
-                    showPopup(`FRENZY (3倍)!`, e.clientX, e.clientY, '#ff007f');
-                    addLogToUI(username, "宇宙隕石から未知の放射線が検出。全生産システムがFRENZY（過給）状態に入りました！");
-                }
-                updateUI();
+            // 古いログから順に差し込み
+            const sortedLogs = [...(data.logs || [])].reverse();
+            sortedLogs.forEach(log => {
+                const item = document.createElement('div');
+                item.className = 'log-item';
+                item.innerHTML = `<strong style="color: #00f2fe;">${log.username}</strong>: ${log.text}`;
+                logContent.appendChild(item);
             });
-
-            document.body.appendChild(meteor);
-            setTimeout(() => { if (meteor.parentNode) meteor.remove(); }, 10000);
-        }
-
-        function scheduleMeteor() {
-            const nextTime = (Math.random() * 30 + 30) * 1000;
-            setTimeout(() => { spawnMeteor(); scheduleMeteor(); }, nextTime);
         }
 
         // ==========================================
-        // GAMEPLAY HELPERS
+        // GAMEPLAY FUNCTIONS
         // ==========================================
         function getCps() {
             let total = 0;
             buildings.forEach(b => {
                 total += b.count * b.cps * b.multiplier;
             });
-            // 基礎CPS × グローバル強化 × バフ × 協力イベントの累積補正
-            return total * globalCpsMultiplier * buffMultiplier * coopCpsMultiplier;
+            return total * globalCpsMultiplier * buffMultiplier;
         }
 
         function getClickPower() {
@@ -1187,7 +1061,7 @@
                     <div class="building-info">
                         <div class="building-name">${b.name}</div>
                         <div class="building-desc">${b.desc}</div>
-                        <div class="building-stats">基礎効率: +${formatNumber(b.cps * b.multiplier)}/s</div>
+                        <div class="building-stats">効率: +${formatNumber(b.cps * b.multiplier)}/s</div>
                     </div>
                     <div class="building-cost-box">
                         <div class="building-cost tech-font">${formatNumber(b.cost)}</div>
@@ -1257,7 +1131,110 @@
             setTimeout(() => notif.classList.remove('show'), 4000);
         }
 
-        // --- データ管理ヘルパー ---
+        // --- 施設購入 ---
+        function buyBuilding(id) {
+            const b = buildings.find(x => x.id === id);
+            if (!b || crystals < b.cost) return;
+
+            crystals -= b.cost;
+            b.count++;
+            b.cost = Math.floor(b.baseCost * Math.pow(1.15, b.count));
+
+            renderBuildings();
+            updateUI();
+            
+            // 重要施設購入ログをキューに追加
+            if (b.cost > 200) {
+                queueActivityLog(`${b.name} を購入しました！`);
+            }
+        }
+
+        // --- 強化購入 ---
+        function buyUpgrade(id) {
+            const u = upgrades.find(x => x.id === id);
+            if (!u || u.purchased || crystals < u.cost) return;
+
+            crystals -= u.cost;
+            u.purchased = true;
+
+            if (u.type === 'click_add') {
+                clickValueUpgrades += u.value;
+            } else if (u.type === 'building_mult') {
+                const target = buildings.find(b => b.id === u.targetId);
+                if (target) target.multiplier *= u.value;
+            } else if (u.type === 'global_mult') {
+                globalCpsMultiplier *= u.value;
+            }
+
+            renderBuildings();
+            renderUpgrades();
+            updateUI();
+            
+            queueActivityLog(`研究技術「${u.name}」を実用化しました！`);
+        }
+
+        // --- ニックネームの変更 ---
+        function changeUsername(newVal) {
+            if (!newVal || newVal.trim() === '') return;
+            const oldName = username;
+            username = newVal.trim();
+            localStorage.setItem('cosmic_clicker_username', username);
+            
+            // 変更イベントをキューして、即時手動で1回データベースと同期する
+            syncWithDatabase(true, `${oldName} が名前を「${username}」に変更しました`);
+        }
+
+        // --- 宇宙隕石 ---
+        function spawnMeteor() {
+            if (document.querySelector('.meteor')) return;
+            const meteor = document.createElement('div');
+            meteor.className = 'meteor';
+            const x = Math.random() * (window.innerWidth - 100) + 50;
+            const y = Math.random() * (window.innerHeight - 200) + 70;
+            meteor.style.left = `${x}px`;
+            meteor.style.top = `${y}px`;
+
+            meteor.addEventListener('click', (e) => {
+                e.stopPropagation();
+                clickedMeteors++;
+                meteor.remove();
+
+                if (Math.random() < 0.5) {
+                    const bonus = Math.max(50, getCps() * 180);
+                    crystals += bonus;
+                    totalCrystals += bonus;
+                    showPopup(`隕石回収! +${formatNumber(bonus)}`, e.clientX, e.clientY, '#ff007f');
+                    queueActivityLog(`宇宙隕石から莫大なエネルギー資源を回収しました！`);
+                } else {
+                    buffTimer = 15;
+                    buffMultiplier = 3;
+                    document.getElementById('crystal-btn').classList.add('frenzy-active');
+                    document.getElementById('buff-timer').classList.add('active');
+                    showPopup(`FRENZY (3倍)!`, e.clientX, e.clientY, '#ff007f');
+                    queueActivityLog(`宇宙隕石の崩壊に伴い、採掘力FRENZY(3倍)を展開！`);
+                }
+                updateUI();
+            });
+
+            document.body.appendChild(meteor);
+            setTimeout(() => { if (meteor.parentNode) meteor.remove(); }, 10000);
+        }
+
+        function scheduleMeteor() {
+            const nextTime = (Math.random() * 30 + 30) * 1000;
+            setTimeout(() => { spawnMeteor(); scheduleMeteor(); }, nextTime);
+        }
+
+        // --- セーブとロード等 ---
+        function getOrCreateUserId() {
+            let uid = localStorage.getItem('cosmic_clicker_uid');
+            if (!uid) {
+                uid = 'u_' + Math.random().toString(36).substring(2, 11);
+                localStorage.setItem('cosmic_clicker_uid', uid);
+            }
+            return uid;
+        }
+
         function getOrCreateUsername() {
             let name = localStorage.getItem('cosmic_clicker_username');
             if (!name) {
@@ -1275,16 +1252,13 @@
                 clickedMeteors,
                 clickValueUpgrades,
                 globalCpsMultiplier,
-                coopCpsMultiplier,
-                currentCoopClicks,
                 buildings: buildings.map(b => ({ id: b.id, count: b.count, cost: b.cost, multiplier: b.multiplier })),
                 upgrades: upgrades.map(u => ({ id: u.id, purchased: u.purchased })),
-                achievements: achievements.map(a => ({ id: a.id, unlocked: a.unlocked })),
-                aiPlayers: aiPlayers.map(p => ({ id: p.id, crystals: p.crystals, totalCrystals: p.totalCrystals, clicks: p.clicks, cps: p.cps }))
+                achievements: achievements.map(a => ({ id: a.id, unlocked: a.unlocked }))
             };
 
             localStorage.setItem('cosmic_clicker_save_v3', JSON.stringify(saveData));
-            if (isManual) alert('進行状況をブラウザに自動保存しました！');
+            if (isManual) alert('進行状況をローカルにセーブしました！');
         }
 
         function loadGame() {
@@ -1298,8 +1272,6 @@
                 if (data.clickedMeteors !== undefined) clickedMeteors = data.clickedMeteors;
                 if (data.clickValueUpgrades !== undefined) clickValueUpgrades = data.clickValueUpgrades;
                 if (data.globalCpsMultiplier !== undefined) globalCpsMultiplier = data.globalCpsMultiplier;
-                if (data.coopCpsMultiplier !== undefined) coopCpsMultiplier = data.coopCpsMultiplier;
-                if (data.currentCoopClicks !== undefined) currentCoopClicks = data.currentCoopClicks;
 
                 if (data.buildings) {
                     data.buildings.forEach(sb => {
@@ -1323,28 +1295,30 @@
                         if (a) a.unlocked = sa.unlocked || false;
                     });
                 }
-                if (data.aiPlayers) {
-                    data.aiPlayers.forEach(sa => {
-                        const p = aiPlayers.find(x => x.id === sa.id);
-                        if (p) {
-                            p.crystals = sa.crystals || 0;
-                            p.totalCrystals = sa.totalCrystals || 0;
-                            p.clicks = sa.clicks || 0;
-                            p.cps = sa.cps || 0;
-                        }
-                    });
-                }
             } catch (e) {
                 console.error("データのロード中にエラーが生じました", e);
             }
         }
 
         function resetGame() {
-            if (confirm('保存されたゲームデータをすべてリセットして、最初からやり直しますか？')) {
+            if (confirm('ローカルの全セーブデータを削除し再起動しますか？')) {
                 localStorage.removeItem('cosmic_clicker_save_v3');
                 localStorage.removeItem('cosmic_clicker_username');
+                localStorage.removeItem('cosmic_clicker_uid');
                 location.reload();
             }
+        }
+
+        // タブ切り替え
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+
+            const targetBtn = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
+            if (targetBtn) targetBtn.classList.add('active');
+
+            const targetPane = document.getElementById(`tab-${tabId}`);
+            if (targetPane) targetPane.classList.add('active');
         }
 
         // 数値整形
