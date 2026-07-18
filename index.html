@@ -162,7 +162,6 @@
         // ==========================================
         // 🛠️ CLOUDFLARE WORKER DEPLOYED URL
         // ==========================================
-        // 取得していただいたあなた専用のURLを最初から適用しています！
         const API_BASE_URL = 'https://cosmic-server.aixai-d-a-y-o-n.workers.dev'; 
 
         let userId = localStorage.getItem('cosmic_worker_uid') || null;
@@ -222,6 +221,7 @@
                 }
             }, 1000);
 
+            // 定期的な自動同期
             setInterval(async () => {
                 await syncWithServer();
             }, 2000);
@@ -257,6 +257,7 @@
             }
         }
 
+        // ここをアップデート：同期の返答に含まれる feed (チャット) もリアルタイム描画する
         async function syncWithServer() {
             if (!isOnline) return;
             try {
@@ -272,6 +273,7 @@
                 
                 applyServerState(data.player);
                 updateMultiplayUI(data.ranking);
+                if (data.feed) renderFeed(data.feed); // 他人のチャットも自動で表示されるよう修正
             } catch (e) {
                 console.error("同期失敗", e);
             }
@@ -331,6 +333,7 @@
                 const data = await response.json();
                 applyServerState(data.player);
                 updateMultiplayUI(data.ranking);
+                if (data.feed) renderFeed(data.feed);
             } catch (e) {
                 console.error("購入エラー", e);
             }
@@ -347,6 +350,7 @@
                 const data = await response.json();
                 applyServerState(data.player);
                 updateMultiplayUI(data.ranking);
+                if (data.feed) renderFeed(data.feed);
             } catch (e) {
                 console.error("アップグレードエラー", e);
             }
@@ -396,6 +400,7 @@
 
         function renderFeed(feed) {
             const container = document.getElementById('log-content');
+            // チャットをスクロール追従させるために、一度最新のものに上書き
             container.innerHTML = '';
             feed.forEach(item => {
                 const el = document.createElement('div');
