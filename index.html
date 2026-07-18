@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COSMIC CLICKER - 完全サーバーレス・リアルマルチプレイ</title>
+    <title>COSMIC CLICKER - リアルタイムマルチプレイ対応版</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
     
+    <!-- 登録不要でリアルタイム通信を行うためのMQTTライブラリをCDNから読込 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+
     <style>
         /* --- 基本スタイル --- */
         * {
@@ -49,7 +52,7 @@
             border-left: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        /* --- 左パネル（メインエリア） --- */
+        /* --- 左パネル（ゲームメイン） --- */
         .game-title {
             font-size: 24px;
             letter-spacing: 4px;
@@ -185,7 +188,7 @@
             bottom: 20px;
             left: 20px;
             width: 280px;
-            height: 115px;
+            height: 110px;
             background: rgba(9, 10, 16, 0.85);
             border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 6px;
@@ -353,7 +356,7 @@
             border: 1px solid rgba(34, 197, 94, 0.3);
         }
 
-        .status-badge.syncing {
+        .status-badge.offline {
             background: rgba(234, 179, 8, 0.15);
             color: #eab308;
             border: 1px solid rgba(234, 179, 8, 0.3);
@@ -640,8 +643,8 @@
             <!-- ランキングタブ -->
             <div id="tab-ranking" class="tab-pane">
                 <div class="ranking-header">
-                    <h3 style="font-size: 15px;" id="ranking-title">銀河採掘ランキング (0人接続中)</h3>
-                    <span id="connection-status" class="status-badge syncing">CONNECTING...</span>
+                    <h3 style="font-size: 15px;">銀河採掘ランキング</h3>
+                    <span id="connection-status" class="status-badge offline">OFFLINE (LOCAL AI)</span>
                 </div>
                 <div id="ranking-list" class="ranking-list"></div>
             </div>
@@ -690,19 +693,26 @@
         <div id="notif-message" class="notif-msg">実績を解除しました</div>
     </div>
 
+    <!-- メインのゲームロジックとMQTT制御 -->
     <script>
         // ==========================================
-        // 🌐 GLOBAL SERVERLESS DATABASE CONFIG
+        // 🌐 MQTT MULTIPLAYER CONFIGURATION
         // ==========================================
-        // kvdb.io のパブリックバケット機能を使用。事前登録・設定は一切不要。
-        // 同じURLを叩くプレイヤー同士が自動的に同期されます。
-        const DATABASE_URL = "https://kvdb.io/Kmsj6z8u8xHj7qK4fN8Y2Z/cosmic_shared_v4";
+        // 登録・キー不要のフリーパブリックWebsocket MQTTブローカーを使用します。
+        const MQTT_BROKER = 'wss://broker.emqx.io:8084/mqtt';
+        const MQTT_TOPIC = 'cosmic_clicker_p2p_v3/lobby';
 
-        // プレイヤーIDと名前
+        let client = null;
+        let isOnline = false;
+        let activePlayers = {}; // 他のアクティブなオンラインプレイヤーを保持するオブジェクト
+
+        // アプリケーションごとに一意の端末IDを生成（シークレットモードでは別IDが発行される）
         let userId = getOrCreateUserId();
         let username = getOrCreateUsername();
 
-        // ゲームステート
+        // ==========================================
+        // GAME STATE & CONFIG
+        // ==========================================
         let crystals = 0;
         let totalCrystals = 0;
         let totalClicks = 0;
@@ -714,13 +724,12 @@
         let buffTimer = 0;
         let buffMultiplier = 1;
         let lastUpdateTime = Date.now();
+        let lastSyncTime = 0;
 
-        // 協力イベント
         const COOP_GOAL = 1000000;
-        let localNewClicks = 0; // 今回の同期までにプレイヤーが手動でクリックした数
-        let pendingEventText = ""; // 次の同期で送信する行動ログ
+        let currentCoopClicks = 0;
 
-        // 施設データ
+        // 施設
         let buildings = [
             { id: 'miner', name: '自動採掘クローン', cost: 15, baseCost: 15, cps: 0.1, count: 0, multiplier: 1, desc: 'クローンが代わりに手掘りで作業します。' },
             { id: 'drill', name: '採掘ドリル', cost: 100, baseCost: 100, cps: 1, count: 0, multiplier: 1, desc: '回転ドリルで結晶を自動破壊します。' },
@@ -756,7 +765,22 @@
         ];
 
         // ==========================================
-        // 🚀 起動処理
+        // 🤖 疑似オンライン用（オフライン時のみ稼働）
+        // ==========================================
+        const mockNames = ["StarMiner_99", "GalaxyX", "Asteroid_Destroyer", "DeepSpaceWorker", "QuantumCat", "NovaGlow"];
+        let mockPlayers = mockNames.map((name, index) => ({
+            userId: "mock_" + index,
+            username: name,
+            crystals: 500 + index * 400,
+            cps: 1.5 + index * 5,
+            totalClicks: 20 + index * 10,
+            totalCrystals: 1000 + index * 1000,
+            lastActive: Date.now()
+        }));
+        let mockInterval = null;
+
+        // ==========================================
+        // CORE LIFECYCLE & LOOPS
         // ==========================================
         window.onload = function() {
             document.getElementById('username-input').value = username;
@@ -767,13 +791,11 @@
             setupEventListeners();
             scheduleMeteor();
 
-            // 初期データベース同期を実行
-            syncWithDatabase(true, "宇宙空間にログインしました");
+            // オンライン（MQTT）への接続を試行
+            connectToMultiplayer();
 
-            // 15秒ごとに定期的にサーバーと同期
-            setInterval(() => {
-                syncWithDatabase();
-            }, 15000);
+            // 15秒ごとのローカル自動セーブ
+            setInterval(() => saveGame(false), 15000);
 
             requestAnimationFrame(gameLoop);
         };
@@ -785,7 +807,6 @@
                 crystals += power;
                 totalCrystals += power;
                 totalClicks++;
-                localNewClicks++; // 次の同期パケット用のクリック数カウンタ
 
                 showPopup(`+${formatNumber(power)}`, e.clientX, e.clientY);
                 updateUI();
@@ -797,6 +818,7 @@
             const dt = (now - lastUpdateTime) / 1000;
             lastUpdateTime = now;
 
+            // バフタイマー
             if (buffTimer > 0) {
                 buffTimer -= dt;
                 if (buffTimer <= 0) {
@@ -809,134 +831,236 @@
                 }
             }
 
+            // 自動生産
             const currentCps = getCps();
-            const gain = currentCps * dt;
-            crystals += gain;
-            totalCrystals += gain;
+            crystals += currentCps * dt;
+            totalCrystals += currentCps * dt;
 
             checkAchievements();
             updateUI();
+
+            // 3秒に1回、他のプレイヤーに自分の最新データを配信
+            if (now - lastSyncTime > 3000) {
+                publishSyncData();
+                cleanInactivePlayers(); // 接続が途絶えた古いプレイヤーを除去
+                lastSyncTime = now;
+            }
 
             requestAnimationFrame(gameLoop);
         }
 
         // ==========================================
-        // 🌐 CLIENT-SERVER COOPERATION (kvdb.io REST API)
+        // 🌐 MQTT MULTIPLAYER NETWORK LOGIC
         // ==========================================
-        async function fetchGlobalData() {
+        function connectToMultiplayer() {
+            const statusBadge = document.getElementById('connection-status');
+            
             try {
-                const response = await fetch(DATABASE_URL);
-                if (response.status === 404) {
-                    // データが存在しない場合、初期化オブジェクトを返す
-                    return { players: {}, logs: [], coopClicks: 0 };
-                }
-                if (!response.ok) throw new Error("HTTP-Error: " + response.status);
-                return await response.json();
+                // MQTT over WebSocket で接続
+                client = mqtt.connect(MQTT_BROKER, {
+                    connectTimeout: 4000,
+                    reconnectPeriod: 5000
+                });
+
+                client.on('connect', () => {
+                    isOnline = true;
+                    statusBadge.className = 'status-badge online';
+                    statusBadge.textContent = 'ONLINE';
+                    
+                    // 擬似AIの動作をリセット・停止してクリーンな本物だけの部屋にする
+                    if (mockInterval) clearInterval(mockInterval);
+                    activePlayers = {}; 
+
+                    client.subscribe(MQTT_TOPIC, (err) => {
+                        if (!err) {
+                            postActivityLog("宇宙空間にワープ接続しました");
+                            publishSyncData();
+                        }
+                    });
+                });
+
+                client.on('message', (topic, message) => {
+                    if (topic !== MQTT_TOPIC) return;
+                    try {
+                        const payload = JSON.parse(message.toString());
+                        if (payload.userId === userId) return; // 自分の発言はスルー
+
+                        if (payload.type === 'sync') {
+                            // 受信したプレイヤーデータを登録
+                            activePlayers[payload.userId] = {
+                                username: payload.username,
+                                crystals: payload.crystals,
+                                cps: payload.cps,
+                                totalClicks: payload.totalClicks,
+                                lastActive: Date.now()
+                            };
+                            updateMultiplayStats();
+                        } else if (payload.type === 'event') {
+                            addLogToUI(payload.username, payload.text);
+                        }
+                    } catch (e) {
+                        console.error("ネットワークメッセージの解析に失敗しました", e);
+                    }
+                });
+
+                client.on('close', () => {
+                    if (isOnline) {
+                        isOnline = false;
+                        initMockConnection(); // 切断時は瞬時にAI疑似モードへ移行
+                    }
+                });
+
+                client.on('error', (err) => {
+                    console.warn("ネットワーク接続エラー、疑似オンラインに切り替えます。", err);
+                    if (!isOnline) initMockConnection();
+                });
+
+                // 4秒間接続できない場合、自動的にローカル疑似モードへ切り替え
+                setTimeout(() => {
+                    if (!isOnline) {
+                        console.log("接続タイムアウト。疑似オンラインへフォールバックします。");
+                        initMockConnection();
+                    }
+                }, 4000);
+
             } catch (e) {
-                console.warn("データベースからの受信に失敗しました(オフラインモード動作):", e);
-                return null;
+                console.warn("MQTTセットアップ失敗、疑似モードに切り替えます。", e);
+                initMockConnection();
             }
         }
 
-        async function syncWithDatabase(isForceEvent = false, customEventText = "") {
-            const statusBadge = document.getElementById('connection-status');
-            statusBadge.className = 'status-badge syncing';
-            statusBadge.textContent = 'SYNCING...';
+        // 3秒ごとのデータ送信
+        function publishSyncData() {
+            if (!isOnline || !client || !client.connected) return;
 
-            let data = await fetchGlobalData();
-            if (!data) {
-                // データベース取得エラー時は表示だけオフライン表記にする
-                statusBadge.className = 'status-badge offline';
-                statusBadge.textContent = 'CONNECTION ERR';
-                return;
-            }
-
-            const now = Date.now();
-
-            // 1. 自身のデータマージ
-            if (!data.players) data.players = {};
-            data.players[userId] = {
+            const syncMsg = {
+                type: 'sync',
+                userId: userId,
                 username: username,
                 crystals: Math.floor(crystals),
                 cps: getCps(),
-                lastActive: now
+                totalClicks: totalClicks
             };
 
-            // 2. 放置プレイヤー(2分以上無活動)の削除
-            for (const uid in data.players) {
-                if (now - data.players[uid].lastActive > 120000) {
-                    delete data.players[uid];
-                }
-            }
+            client.publish(MQTT_TOPIC, JSON.stringify(syncMsg));
+        }
 
-            // 3. 協力クリックへの加算
-            if (data.coopClicks === undefined) data.coopClicks = 0;
-            data.coopClicks += localNewClicks;
-            localNewClicks = 0; // 加算したのでローカルはリセット
-
-            // 4. イベントログの格納
-            if (!data.logs) data.logs = [];
-            
-            // 手動イベント、または直前までに発生した保留中ログを適用
-            let logText = "";
-            if (isForceEvent && customEventText) {
-                logText = customEventText;
-            } else if (pendingEventText) {
-                logText = pendingEventText;
-                pendingEventText = "";
-            }
-
-            if (logText) {
-                data.logs.unshift({
+        // 銀河フィードへの活動イベント送信
+        function postActivityLog(text) {
+            if (isOnline && client && client.connected) {
+                const eventMsg = {
+                    type: 'event',
+                    userId: userId,
                     username: username,
-                    text: logText,
-                    timestamp: now
-                });
-                if (data.logs.length > 8) data.logs = data.logs.slice(0, 8);
+                    text: text
+                };
+                client.publish(MQTT_TOPIC, JSON.stringify(eventMsg));
             }
+            addLogToUI(username, text);
+        }
 
-            // 5. データベースにポストバック
-            try {
-                await fetch(DATABASE_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
+        // 一定時間（6秒以上）発言のないプレイヤーをオフライン化
+        function cleanInactivePlayers() {
+            const now = Date.now();
+            let changed = false;
+            Object.keys(activePlayers).forEach(id => {
+                // AIプレイヤーはオフライン判定から除外
+                if (id.startsWith('mock_')) return;
+
+                if (now - activePlayers[id].lastActive > 6000) {
+                    delete activePlayers[id];
+                    changed = true;
+                }
+            });
+            if (changed) {
+                updateMultiplayStats();
+            }
+        }
+
+        // ==========================================
+        // 🤖 疑似オンライン（AI制御）
+        // ==========================================
+        function initMockConnection() {
+            if (mockInterval) return; // 既に開始していれば処理しない
+            
+            const statusBadge = document.getElementById('connection-status');
+            statusBadge.className = 'status-badge offline';
+            statusBadge.textContent = 'PSEUDO-ONLINE (LOCAL AI)';
+
+            // 3秒ごとに擬似AIプレイヤーの状態を変化
+            mockInterval = setInterval(() => {
+                mockPlayers.forEach(p => {
+                    p.crystals += p.cps * 3;
+                    p.totalCrystals += p.cps * 3;
+                    p.totalClicks += Math.floor(p.cps * 0.1) + 1;
+
+                    // 8%の確率でAIが新しい施設を購入
+                    if (Math.random() < 0.08) {
+                        const randomB = buildings[Math.floor(Math.random() * 4)];
+                        p.cps += randomB.cps;
+                        p.crystals = Math.max(0, p.crystals - randomB.cost * 0.5);
+                        addLogToUI(p.username, `${randomB.name} を購入しました！`);
+                    }
+                    // 4%の確率でAIが隕石回収
+                    if (Math.random() < 0.04) {
+                        p.crystals += p.cps * 100;
+                        addLogToUI(p.username, `隕石を回収しました！`);
+                    }
+
+                    // 疑似的にマップに登録
+                    activePlayers[p.userId] = {
+                        username: p.username,
+                        crystals: p.crystals,
+                        cps: p.cps,
+                        totalClicks: p.totalClicks,
+                        lastActive: Date.now()
+                    };
                 });
 
+                updateMultiplayStats();
+            }, 3000);
+        }
+
+        // ==========================================
+        // MULTIPLAY STATISTICS & UI REBUILD
+        // ==========================================
+        function updateMultiplayStats() {
+            // 自分も含めた全員のプレイヤーリスト
+            const playerList = Object.keys(activePlayers).map(id => activePlayers[id]);
+            playerList.push({
+                userId: userId,
+                username: username,
+                crystals: crystals,
+                cps: getCps(),
+                totalClicks: totalClicks
+            });
+
+            // オンラインプレイヤーの人数表示を更新
+            const onlineCount = playerList.length;
+            const statusBadge = document.getElementById('connection-status');
+            if (isOnline) {
+                statusBadge.textContent = `ONLINE (${onlineCount})`;
                 statusBadge.className = 'status-badge online';
-                statusBadge.textContent = 'ONLINE (SHARED)';
-            } catch (e) {
-                console.error("送信に失敗しました:", e);
+            } else {
+                statusBadge.textContent = `PSEUDO-ONLINE (${onlineCount})`;
                 statusBadge.className = 'status-badge offline';
-                statusBadge.textContent = 'SYNC FAIL';
             }
 
-            // 6. UIを新データで再構築
-            updateOnlineUI(data);
+            // オンラインプレイヤー全員の手動クリック総数をマージ（協力イベント進行度）
+            const totalCoopClicks = playerList.reduce((sum, p) => sum + (p.totalClicks || 0), 0);
+            currentCoopClicks = totalCoopClicks;
+            updateCoopUI();
+
+            // ランキング順に並び替え
+            playerList.sort((a, b) => b.crystals - a.crystals);
+            updateRankingUI(playerList);
         }
 
-        // 行動ログをキューに追加（次の15秒周期の同タイミングで送信されるため、過剰な通信を防止）
-        function queueActivityLog(text) {
-            pendingEventText = text;
-        }
+        function updateRankingUI(list) {
+            const container = document.getElementById('ranking-list');
+            container.innerHTML = '';
 
-        // オンラインデータをもとにUIを書き換える
-        function updateOnlineUI(data) {
-            // 1. ランキング表示の構築
-            const rankingList = document.getElementById('ranking-list');
-            rankingList.innerHTML = '';
-
-            const playersArr = Object.keys(data.players).map(uid => ({
-                userId: uid,
-                username: data.players[uid].username || "Unnamed",
-                crystals: data.players[uid].crystals || 0,
-                cps: data.players[uid].cps || 0
-            }));
-
-            // クリスタル数基準でソート
-            playersArr.sort((a, b) => b.crystals - a.crystals);
-
-            playersArr.slice(0, 10).forEach((p, idx) => {
+            list.slice(0, 10).forEach((p, idx) => {
                 const el = document.createElement('div');
                 el.className = `ranking-item ${p.userId === userId ? 'self' : ''}`;
                 
@@ -949,36 +1073,122 @@
                         <div class="rank-cps tech-font">${formatNumber(p.cps)}/s</div>
                     </div>
                 `;
-                rankingList.appendChild(el);
+                container.appendChild(el);
             });
+        }
 
-            // ランキングタイトルに現在の接続人数を反映
-            const onlineCount = playersArr.length;
-            document.getElementById('ranking-title').textContent = `銀河採掘ランキング (${onlineCount}人接続中)`;
-
-            // 2. 協力イベントゲージの更新
-            const currentCoopClicks = data.coopClicks || 0;
+        function updateCoopUI() {
             const bar = document.getElementById('coop-bar');
             const percent = Math.min(100, (currentCoopClicks / COOP_GOAL) * 100);
             bar.style.width = `${percent}%`;
+
             document.getElementById('coop-stats').textContent = `銀河累計クリック: ${currentCoopClicks.toLocaleString()} / ${COOP_GOAL.toLocaleString()} (${percent.toFixed(2)}%)`;
 
+            // 目標達成時のバフ適用
             if (currentCoopClicks >= COOP_GOAL) {
-                globalCpsMultiplier = 1.5; // イベント達成で全員1.5倍ブースト
+                globalCpsMultiplier = 1.5; // 全体の自動生産力1.5倍化
+            }
+        }
+
+        function addLogToUI(user, text) {
+            const container = document.getElementById('log-content');
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.innerHTML = `<strong style="color: #00f2fe;">${user}</strong>: ${text}`;
+            container.appendChild(item);
+
+            // ログ幅制限
+            while (container.childNodes.length > 5) {
+                container.removeChild(container.firstChild);
+            }
+        }
+
+        // ==========================================
+        // SYSTEM CONTROLS (GLOBAL SCOPE)
+        // ==========================================
+        window.switchTab = function(tabId) {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+
+            const targetBtn = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
+            if (targetBtn) targetBtn.classList.add('active');
+
+            const targetPane = document.getElementById(`tab-${tabId}`);
+            if (targetPane) targetPane.classList.add('active');
+        }
+
+        window.buyBuilding = function(id) {
+            const b = buildings.find(x => x.id === id);
+            if (!b || crystals < b.cost) return;
+
+            crystals -= b.cost;
+            b.count++;
+            b.cost = Math.floor(b.baseCost * Math.pow(1.15, b.count));
+
+            renderBuildings();
+            updateUI();
+            
+            if (b.cost > 1000) {
+                postActivityLog(`${b.name} を購入しました！`);
+            }
+        }
+
+        window.buyUpgrade = function(id) {
+            const u = upgrades.find(x => x.id === id);
+            if (!u || u.purchased || crystals < u.cost) return;
+
+            crystals -= u.cost;
+            u.purchased = true;
+
+            if (u.type === 'click_add') {
+                clickValueUpgrades += u.value;
+            } else if (u.type === 'building_mult') {
+                const target = buildings.find(b => b.id === u.targetId);
+                if (target) target.multiplier *= u.value;
+            } else if (u.type === 'global_mult') {
+                globalCpsMultiplier *= u.value;
             }
 
-            // 3. アクティビティログの更新
-            const logContent = document.getElementById('log-content');
-            logContent.innerHTML = '';
+            renderBuildings();
+            renderUpgrades();
+            updateUI();
             
-            // 古いログから順に差し込み
-            const sortedLogs = [...(data.logs || [])].reverse();
-            sortedLogs.forEach(log => {
-                const item = document.createElement('div');
-                item.className = 'log-item';
-                item.innerHTML = `<strong style="color: #00f2fe;">${log.username}</strong>: ${log.text}`;
-                logContent.appendChild(item);
-            });
+            postActivityLog(`研究技術「${u.name}」を実用化しました！`);
+        }
+
+        window.changeUsername = function(newVal) {
+            if (!newVal || newVal.trim() === '') return;
+            const oldName = username;
+            username = newVal.trim();
+            localStorage.setItem('cosmic_clicker_username', username);
+            postActivityLog(`${oldName} が名前を ${username} に変更しました`);
+            publishSyncData();
+        }
+
+        window.saveGame = function(isManual = false) {
+            const saveData = {
+                crystals,
+                totalCrystals,
+                totalClicks,
+                clickedMeteors,
+                clickValueUpgrades,
+                globalCpsMultiplier,
+                buildings: buildings.map(b => ({ id: b.id, count: b.count, cost: b.cost, multiplier: b.multiplier })),
+                upgrades: upgrades.map(u => ({ id: u.id, purchased: u.purchased })),
+                achievements: achievements.map(a => ({ id: a.id, unlocked: a.unlocked }))
+            };
+
+            localStorage.setItem('cosmic_clicker_save_v3', JSON.stringify(saveData));
+            if (isManual) alert('進行状況を保存しました！');
+        }
+
+        window.resetGame = function() {
+            if (confirm('ローカルの全セーブデータを削除し再起動しますか？')) {
+                localStorage.removeItem('cosmic_clicker_save_v3');
+                localStorage.removeItem('cosmic_clicker_username');
+                localStorage.removeItem('cosmic_clicker_uid');
+                location.reload();
+            }
         }
 
         // ==========================================
@@ -1056,7 +1266,7 @@
                 const el = document.createElement('div');
                 el.id = `btn-${b.id}`;
                 el.className = 'building-item disabled';
-                el.onclick = () => buyBuilding(b.id);
+                el.onclick = () => window.buyBuilding(b.id);
                 el.innerHTML = `
                     <div class="building-info">
                         <div class="building-name">${b.name}</div>
@@ -1082,7 +1292,7 @@
                 const el = document.createElement('div');
                 el.id = `btn-${u.id}`;
                 el.className = 'upgrade-item disabled';
-                el.onclick = () => buyUpgrade(u.id);
+                el.onclick = () => window.buyUpgrade(u.id);
                 el.innerHTML = `
                     <div class="upgrade-info">
                         <div class="upgrade-name">${u.name}</div>
@@ -1131,60 +1341,6 @@
             setTimeout(() => notif.classList.remove('show'), 4000);
         }
 
-        // --- 施設購入 ---
-        function buyBuilding(id) {
-            const b = buildings.find(x => x.id === id);
-            if (!b || crystals < b.cost) return;
-
-            crystals -= b.cost;
-            b.count++;
-            b.cost = Math.floor(b.baseCost * Math.pow(1.15, b.count));
-
-            renderBuildings();
-            updateUI();
-            
-            // 重要施設購入ログをキューに追加
-            if (b.cost > 200) {
-                queueActivityLog(`${b.name} を購入しました！`);
-            }
-        }
-
-        // --- 強化購入 ---
-        function buyUpgrade(id) {
-            const u = upgrades.find(x => x.id === id);
-            if (!u || u.purchased || crystals < u.cost) return;
-
-            crystals -= u.cost;
-            u.purchased = true;
-
-            if (u.type === 'click_add') {
-                clickValueUpgrades += u.value;
-            } else if (u.type === 'building_mult') {
-                const target = buildings.find(b => b.id === u.targetId);
-                if (target) target.multiplier *= u.value;
-            } else if (u.type === 'global_mult') {
-                globalCpsMultiplier *= u.value;
-            }
-
-            renderBuildings();
-            renderUpgrades();
-            updateUI();
-            
-            queueActivityLog(`研究技術「${u.name}」を実用化しました！`);
-        }
-
-        // --- ニックネームの変更 ---
-        function changeUsername(newVal) {
-            if (!newVal || newVal.trim() === '') return;
-            const oldName = username;
-            username = newVal.trim();
-            localStorage.setItem('cosmic_clicker_username', username);
-            
-            // 変更イベントをキューして、即時手動で1回データベースと同期する
-            syncWithDatabase(true, `${oldName} が名前を「${username}」に変更しました`);
-        }
-
-        // --- 宇宙隕石 ---
         function spawnMeteor() {
             if (document.querySelector('.meteor')) return;
             const meteor = document.createElement('div');
@@ -1204,14 +1360,14 @@
                     crystals += bonus;
                     totalCrystals += bonus;
                     showPopup(`隕石回収! +${formatNumber(bonus)}`, e.clientX, e.clientY, '#ff007f');
-                    queueActivityLog(`宇宙隕石から莫大なエネルギー資源を回収しました！`);
+                    postActivityLog(`宇宙をさまよう超純度隕石を回収しました！`);
                 } else {
                     buffTimer = 15;
                     buffMultiplier = 3;
                     document.getElementById('crystal-btn').classList.add('frenzy-active');
                     document.getElementById('buff-timer').classList.add('active');
                     showPopup(`FRENZY (3倍)!`, e.clientX, e.clientY, '#ff007f');
-                    queueActivityLog(`宇宙隕石の崩壊に伴い、採掘力FRENZY(3倍)を展開！`);
+                    postActivityLog(`時空のワームホールをこじ開けてFRENZYを展開！`);
                 }
                 updateUI();
             });
@@ -1225,8 +1381,11 @@
             setTimeout(() => { spawnMeteor(); scheduleMeteor(); }, nextTime);
         }
 
-        // --- セーブとロード等 ---
+        // ==========================================
+        // LOCAL STORAGE & DATA CONTROLLERS
+        // ==========================================
         function getOrCreateUserId() {
+            // Cookieと同じ役割を果たすlocalStorageを使用（シークレットモードでは別空間になります）
             let uid = localStorage.getItem('cosmic_clicker_uid');
             if (!uid) {
                 uid = 'u_' + Math.random().toString(36).substring(2, 11);
@@ -1242,23 +1401,6 @@
                 localStorage.setItem('cosmic_clicker_username', name);
             }
             return name;
-        }
-
-        function saveGame(isManual = false) {
-            const saveData = {
-                crystals,
-                totalCrystals,
-                totalClicks,
-                clickedMeteors,
-                clickValueUpgrades,
-                globalCpsMultiplier,
-                buildings: buildings.map(b => ({ id: b.id, count: b.count, cost: b.cost, multiplier: b.multiplier })),
-                upgrades: upgrades.map(u => ({ id: u.id, purchased: u.purchased })),
-                achievements: achievements.map(a => ({ id: a.id, unlocked: a.unlocked }))
-            };
-
-            localStorage.setItem('cosmic_clicker_save_v3', JSON.stringify(saveData));
-            if (isManual) alert('進行状況をローカルにセーブしました！');
         }
 
         function loadGame() {
@@ -1296,32 +1438,10 @@
                     });
                 }
             } catch (e) {
-                console.error("データのロード中にエラーが生じました", e);
+                console.error("ローカルデータの復元中にエラーが発生しました", e);
             }
         }
 
-        function resetGame() {
-            if (confirm('ローカルの全セーブデータを削除し再起動しますか？')) {
-                localStorage.removeItem('cosmic_clicker_save_v3');
-                localStorage.removeItem('cosmic_clicker_username');
-                localStorage.removeItem('cosmic_clicker_uid');
-                location.reload();
-            }
-        }
-
-        // タブ切り替え
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
-
-            const targetBtn = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
-            if (targetBtn) targetBtn.classList.add('active');
-
-            const targetPane = document.getElementById(`tab-${tabId}`);
-            if (targetPane) targetPane.classList.add('active');
-        }
-
-        // 数値整形
         function formatNumber(num, decimals = 1) {
             if (num < 1000) return num % 1 === 0 ? num.toString() : num.toFixed(decimals);
             const suffixes = ["", "K", "M", "B", "T", "Qa", "Qi"];
