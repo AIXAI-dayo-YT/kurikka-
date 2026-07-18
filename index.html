@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COSMIC CLICKER - 宇宙結晶採掘ゲーム</title>
+    <!-- SF調のフォントをGoogle Fontsからロード -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- 基本のスタイル設定 --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #05050a;
+            color: #e2e8f0;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* 数値や英語部分用のSF調フォント */
+        .tech-font {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        /* --- レイアウト構造 --- */
+        /* 左パネル：クリスタルと数値（全体の半分） */
+        .left-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            background: radial-gradient(circle, #0f111a 0%, #05050a 100%);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 20px;
+        }
+
+        /* 右パネル：ショップと実績（全体の半分） */
+        .right-panel {
+            width: 480px;
+            display: flex;
+            flex-direction: column;
+            background: #090a10;
+            border-left: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- 左パネル（メインエリア） --- */
+        .game-title {
+            font-size: 24px;
+            letter-spacing: 4px;
+            color: #00f2fe;
+            text-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
+            margin-bottom: 30px;
+            font-weight: 900;
+        }
+
+        .stats-container {
+            text-align: center;
+            margin-bottom: 40px;
+            z-index: 2;
+        }
+
+        .crystal-count {
+            font-size: 40px;
+            font-weight: 700;
+            color: #ffffff;
+            text-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+            margin-bottom: 8px;
+        }
+
+        .cps-count {
+            font-size: 16px;
+            color: #94a3b8;
+        }
+
+        /* 巨大クリスタル */
+        .crystal-wrapper {
+            position: relative;
+            margin-bottom: 40px;
+            z-index: 2;
+        }
+
+        .crystal {
+            width: 180px;
+            height: 240px;
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 40%, #c084fc 100%);
+            clip-path: polygon(50% 0%, 85% 25%, 85% 75%, 50% 100%, 15% 75%, 15% 25%);
+            box-shadow: 0 0 35px rgba(0, 242, 254, 0.4);
+            cursor: pointer;
+            transition: transform 0.05s ease, filter 0.1s ease;
+            position: relative;
+        }
+
+        .crystal::before {
+            content: '';
+            position: absolute;
+            top: 2%; left: 2%; right: 2%; bottom: 2%;
+            background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,0.4) 100%);
+            clip-path: polygon(50% 0%, 85% 25%, 85% 75%, 50% 100%, 15% 75%, 15% 25%);
+        }
+
+        .crystal:hover {
+            filter: brightness(1.2) drop-shadow(0 0 20px rgba(0, 242, 254, 0.8));
+            transform: scale(1.03);
+        }
+
+        .crystal:active {
+            transform: scale(0.96);
+        }
+
+        /* 隕石バフ(Frenzy)発動中のエフェクト */
+        .crystal.frenzy-active {
+            animation: crystal-frenzy-anim 0.5s infinite alternate;
+        }
+
+        @keyframes crystal-frenzy-anim {
+            0% {
+                box-shadow: 0 0 30px #ff007f, inset 0 0 10px #ff007f;
+                filter: brightness(1.2) saturate(1.5) scale(1.02);
+            }
+            100% {
+                box-shadow: 0 0 50px #ff007f, inset 0 0 25px #ff007f;
+                filter: brightness(1.4) saturate(2) scale(1.05);
+            }
+        }
+
+        /* バフ状態表示 */
+        .buff-display {
+            font-size: 14px;
+            font-weight: bold;
+            color: #ff007f;
+            text-shadow: 0 0 8px rgba(255, 0, 127, 0.6);
+            background: rgba(255, 0, 127, 0.1);
+            border: 1px solid rgba(255, 0, 127, 0.3);
+            border-radius: 20px;
+            padding: 6px 16px;
+            margin-top: 10px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        .buff-display.active {
+            opacity: 1;
+        }
+
+        /* クリック時ポップアップテキスト */
+        .click-popup {
+            position: absolute;
+            color: #00f2fe;
+            font-weight: 900;
+            font-size: 22px;
+            pointer-events: none;
+            animation: popup-anim 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+            text-shadow: 0 0 6px rgba(0, 242, 254, 0.8);
+            z-index: 10;
+        }
+
+        @keyframes popup-anim {
+            0% {
+                transform: translate(-50%, -50%) translateY(0) scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: translate(-50%, -50%) translateY(-120px) scale(0.8);
+                opacity: 0;
+            }
+        }
+
+        /* --- 右パネル（タブエリア） --- */
+        .tab-headers {
+            display: flex;
+            background: #11131e;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 15px 0;
+            background: none;
+            border: none;
+            color: #94a3b8;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            text-align: center;
+        }
+
+        .tab-button:hover {
+            background: rgba(255, 255, 255, 0.02);
+            color: #e2e8f0;
+        }
+
+        .tab-button.active {
+            color: #00f2fe;
+            border-bottom: 2px solid #00f2fe;
+            background: rgba(0, 242, 254, 0.02);
+        }
+
+        .tab-contents {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .tab-pane {
+            display: none;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        /* --- 施設カード --- */
+        .building-item {
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .building-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(0, 242, 254, 0.3);
+        }
+
+        .building-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: rgba(255, 255, 255, 0.05) !important;
+            background: rgba(255, 255, 255, 0.01) !important;
+        }
+
+        .building-info {
+            flex: 1;
+        }
+
+        .building-name {
+            font-weight: bold;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
+        .building-desc {
+            font-size: 11px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+
+        .building-stats {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .building-cost-box {
+            text-align: right;
+            padding-left: 10px;
+        }
+
+        .building-cost {
+            font-size: 15px;
+            font-weight: bold;
+            color: #00f2fe;
+        }
+
+        .building-item.disabled .building-cost {
+            color: #64748b;
+        }
+
+        .building-count {
+            font-size: 20px;
+            font-weight: bold;
+            color: rgba(255, 255, 255, 0.3);
+            margin-top: 4px;
+        }
+
+        /* --- アップグレードカード --- */
+        .upgrade-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+
+        .upgrade-item {
+            display: flex;
+            align-items: center;
+            background: rgba(20, 24, 38, 0.6);
+            border: 1px solid rgba(192, 132, 252, 0.2);
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .upgrade-item:hover {
+            background: rgba(20, 24, 38, 0.9);
+            border-color: #c084fc;
+        }
+
+        .upgrade-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: rgba(255, 255, 255, 0.05) !important;
+            background: rgba(255, 255, 255, 0.01) !important;
+        }
+
+        .upgrade-info {
+            flex: 1;
+        }
+
+        .upgrade-name {
+            font-weight: bold;
+            font-size: 14px;
+            color: #c084fc;
+            margin-bottom: 2px;
+        }
+
+        .upgrade-item.disabled .upgrade-name {
+            color: #94a3b8;
+        }
+
+        .upgrade-desc {
+            font-size: 11px;
+            color: #94a3b8;
+        }
+
+        .upgrade-cost {
+            font-size: 14px;
+            font-weight: bold;
+            color: #c084fc;
+            text-align: right;
+            padding-left: 10px;
+        }
+
+        .upgrade-item.disabled .upgrade-cost {
+            color: #64748b;
+        }
+
+        /* --- 実績リスト --- */
+        .achievement-item {
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            opacity: 0.4;
+            transition: opacity 0.3s, border-color 0.3s, background 0.3s;
+        }
+
+        .achievement-item.unlocked {
+            opacity: 1;
+            background: rgba(0, 242, 254, 0.03);
+            border-color: rgba(0, 242, 254, 0.3);
+        }
+
+        .achievement-badge {
+            width: 36px;
+            height: 36px;
+            background: #1e293b;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            margin-right: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .achievement-item.unlocked .achievement-badge {
+            background: #00f2fe;
+            color: #05050a;
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
+            border: none;
+        }
+
+        .achievement-details {
+            flex: 1;
+        }
+
+        .achievement-title {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .achievement-desc {
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .achievement-item.unlocked .achievement-desc {
+            color: #94a3b8;
+        }
+
+        /* --- 統計 & 設定 --- */
+        .stats-list {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 13px;
+        }
+
+        .stats-row:last-child {
+            border-bottom: none;
+        }
+
+        .stats-label {
+            color: #94a3b8;
+        }
+
+        .btn-action {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background: rgba(244, 63, 94, 0.1);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            color: #f43f5e;
+            font-size: 13px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+            transition: background 0.2s, color 0.2s;
+            margin-bottom: 12px;
+        }
+
+        .btn-action:hover {
+            background: #f43f5e;
+            color: #fff;
+        }
+
+        .btn-save {
+            background: rgba(0, 242, 254, 0.1);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            color: #00f2fe;
+        }
+
+        .btn-save:hover {
+            background: #00f2fe;
+            color: #05050a;
+        }
+
+        /* --- 隕石 (ランダムイベント) --- */
+        .meteor {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: radial-gradient(circle, #ff007f 0%, #7928ca 100%);
+            border-radius: 50%;
+            box-shadow: 0 0 20px #ff007f;
+            cursor: pointer;
+            z-index: 100;
+            animation: meteor-pulse 1.2s infinite alternate, meteor-float 12s linear forwards;
+        }
+
+        @keyframes meteor-pulse {
+            0% { transform: scale(1); box-shadow: 0 0 15px #ff007f; }
+            100% { transform: scale(1.15); box-shadow: 0 0 30px #ff007f; }
+        }
+
+        @keyframes meteor-float {
+            0% { opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        /* --- 実績通知 --- */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(9, 10, 16, 0.95);
+            border: 1px solid #ff007f;
+            box-shadow: 0 0 15px rgba(255, 0, 127, 0.3);
+            border-radius: 8px;
+            padding: 12px 20px;
+            color: #fff;
+            z-index: 1000;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s;
+            pointer-events: none;
+            width: 300px;
+        }
+
+        .notification.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .notif-title {
+            color: #ff007f;
+            font-weight: bold;
+            font-size: 13px;
+            margin-bottom: 2px;
+            letter-spacing: 1px;
+        }
+
+        .notif-msg {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        /* --- レスポンシブ対応 --- */
+        @media (max-width: 900px) {
+            body {
+                flex-direction: column;
+                overflow-y: auto;
+                height: auto;
+            }
+            .left-panel {
+                height: 50vh;
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                position: sticky;
+                top: 0;
+                z-index: 10;
+            }
+            .right-panel {
+                width: 100%;
+                height: auto;
+                overflow-y: visible;
+            }
+            .tab-contents {
+                overflow-y: visible;
+                height: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 左パネル: ゲームメイン画面 -->
+    <div class="left-panel">
+        <h1 class="game-title tech-font">COSMIC CLICKER</h1>
+        
+        <div class="stats-container">
+            <!-- 現在の所持クリスタル -->
+            <div id="crystals-display" class="crystal-count tech-font">0</div>
+            <!-- 現在の1秒間生産量(CPS) -->
+            <div id="cps-display" class="cps-count">毎秒: 0 クリスタル</div>
+            <!-- バフ残り時間表示 -->
+            <div id="buff-timer" class="buff-display tech-font">FRENZY ACTIVE (15s)</div>
+        </div>
+
+        <div class="crystal-wrapper">
+            <!-- クリック対象となるクリスタル -->
+            <div id="crystal-btn" class="crystal"></div>
+        </div>
+    </div>
+
+    <!-- 右パネル: ショップ・実績・設定 -->
+    <div class="right-panel">
+        <!-- タブヘッダー -->
+        <div class="tab-headers">
+            <button class="tab-button active" onclick="switchTab('buildings')">施設</button>
+            <button class="tab-button" onclick="switchTab('upgrades')">強化</button>
+            <button class="tab-button" onclick="switchTab('achievements')">実績</button>
+            <button class="tab-button" onclick="switchTab('settings')">管理</button>
+        </div>
+
+        <!-- タブコンテンツ -->
+        <div class="tab-contents">
+            
+            <!-- 施設タブ -->
+            <div id="tab-buildings" class="tab-pane active">
+                <div id="buildings-list">
+                    <!-- JSで動的に追加されます -->
+                </div>
+            </div>
+
+            <!-- アップグレードタブ -->
+            <div id="tab-upgrades" class="tab-pane">
+                <div id="upgrades-list" class="upgrade-grid">
+                    <!-- JSで動的に追加されます -->
+                </div>
+            </div>
+
+            <!-- 実績タブ -->
+            <div id="tab-achievements" class="tab-pane">
+                <div id="achievements-list">
+                    <!-- JSで動的に追加されます -->
+                </div>
+            </div>
+
+            <!-- 設定/統計タブ -->
+            <div id="tab-settings" class="tab-pane">
+                <h3 style="margin-bottom: 12px; font-size: 16px;">採掘データ統計</h3>
+                <div class="stats-list">
+                    <div class="stats-row">
+                        <span class="stats-label">累計採掘クリスタル</span>
+                        <span id="stat-total-crystals" class="tech-font">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">手動クリック回数</span>
+                        <span id="stat-total-clicks" class="tech-font">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">手動クリック生産量</span>
+                        <span id="stat-click-power" class="tech-font">1</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">回収した宇宙隕石</span>
+                        <span id="stat-meteors" class="tech-font">0</span>
+                    </div>
+                </div>
+
+                <h3 style="margin-bottom: 12px; font-size: 16px;">セーブデータ制御</h3>
+                <button class="btn-action btn-save" onclick="saveGame(true)">手動セーブ</button>
+                <button class="btn-action" onclick="resetGame()">データ消去（リセット）</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 実績解除用の通知エリア -->
+    <div id="ach-notification" class="notification">
+        <div class="notif-title tech-font">ACHIEVEMENT UNLOCKED</div>
+        <div id="notif-message" class="notif-msg">実績解除メッセージ</div>
+    </div>
+
+    <script>
+        // --- ゲーム状態変数 ---
+        let crystals = 0;                  // 現在のクリスタル
+        let totalCrystals = 0;             // 累計獲得クリスタル
+        let totalClicks = 0;               // クリック回数
+        let clickedMeteors = 0;            // 隕石クリック回数
+        
+        let baseClickValue = 1;            // 基礎クリックパワー
+        let clickValueUpgrades = 0;        // アップグレードによるクリック加算値
+        let globalCpsMultiplier = 1;       // CPS全体の乗数
+
+        let buffTimer = 0;                 // バフ残り時間（秒）
+        let buffMultiplier = 1;            // 現在有効なバフ倍率
+        let lastUpdateTime = Date.now();   // 前回のアップデート時刻
+
+        // --- 施設データ定義 ---
+        let buildings = [
+            { id: 'miner', name: '自動採掘クローン', cost: 15, baseCost: 15, cps: 0.1, count: 0, multiplier: 1, desc: 'クローンが代わりに手掘りで作業します。' },
+            { id: 'drill', name: '採掘ドリル', cost: 100, baseCost: 100, cps: 1, count: 0, multiplier: 1, desc: '回転ドリルで結晶を自動破壊します。' },
+            { id: 'laser', name: 'プラズマレーザー', cost: 1100, baseCost: 1100, cps: 8, count: 0, multiplier: 1, desc: '超高熱レーザーで遠隔切削します。' },
+            { id: 'reactor', name: '熱融合炉', cost: 12000, baseCost: 12000, cps: 47, count: 0, multiplier: 1, desc: '熱源エネルギーを利用し大規模採掘。' },
+            { id: 'gravity', name: '重力濃縮器', cost: 130000, baseCost: 130000, cps: 260, count: 0, multiplier: 1, desc: '重力場を用いて結晶を引き寄せます。' },
+            { id: 'warp', name: '次元ワープ採掘機', cost: 1400000, baseCost: 1400000, cps: 1400, count: 0, multiplier: 1, desc: '平行世界から直接資源を転送します。' },
+            { id: 'timemachine', name: 'タイムマシン', cost: 20000000, baseCost: 20000000, cps: 7800, count: 0, multiplier: 1, desc: '未来で発掘されたクリスタルを持ってきます。' }
+        ];
+
+        // --- アップグレードデータ定義 ---
+        let upgrades = [
+            { id: 'up_click_1', name: '強化グローブ', cost: 100, purchased: false, type: 'click_add', value: 1, desc: 'クリックパワーが恒久的に +1' },
+            { id: 'up_click_2', name: '精密ピッケル', cost: 500, purchased: false, type: 'click_add', value: 5, desc: 'クリックパワーが恒久的に +5' },
+            { id: 'up_click_3', name: 'ナノレーザー', cost: 10000, purchased: false, type: 'click_add', value: 50, desc: 'クリックパワーが恒久的に +50' },
+            { id: 'up_click_4', name: '空間破砕振動子', cost: 100000, purchased: false, type: 'click_add', value: 500, desc: 'クリックパワーが恒久的に +500' },
+            
+            { id: 'up_b_miner', name: '超精密モーター', cost: 400, purchased: false, type: 'building_mult', targetId: 'miner', value: 2, desc: '「自動採掘クローン」の効率が 2倍 に上昇' },
+            { id: 'up_b_drill', name: '超硬合金ブレード', cost: 2000, purchased: false, type: 'building_mult', targetId: 'drill', value: 2, desc: '「採掘ドリル」の効率が 2倍 に上昇' },
+            { id: 'up_b_laser', name: '収束レンズ群', cost: 22000, purchased: false, type: 'building_mult', targetId: 'laser', value: 2, desc: '「プラズマレーザー」の効率が 2倍 に上昇' },
+            
+            { id: 'up_g_1', name: '宇宙線共鳴フィールド', cost: 50000, purchased: false, type: 'global_mult', value: 1.2, desc: '全体の秒間自動生産力(CPS)が 1.2倍 に上昇' },
+            { id: 'up_g_2', name: 'シンギュラリティ機関', cost: 1500000, purchased: false, type: 'global_mult', value: 1.5, desc: '全体の秒間自動生産力(CPS)が 1.5倍 に上昇' }
+        ];
+
+        // --- 実績データ定義 ---
+        let achievements = [
+            { id: 'ach_1', name: '駆け出し採掘者', desc: '手動クリックを10回行う。', unlocked: false, check: () => totalClicks >= 10 },
+            { id: 'ach_2', name: '最初の労働者', desc: '自動採掘クローンを1個購入する。', unlocked: false, check: () => getBuildingCount('miner') >= 1 },
+            { id: 'ach_3', name: '中堅工場', desc: '施設を累計15個購入する。', unlocked: false, check: () => getTotalBuildings() >= 15 },
+            { id: 'ach_4', name: '宇宙長者', desc: '累計で 10,000 クリスタルを発掘。', unlocked: false, check: () => totalCrystals >= 10000 },
+            { id: 'ach_5', name: '隕石ハンター', desc: '宇宙隕石を初めてクリックする。', unlocked: false, check: () => clickedMeteors >= 1 },
+            { id: 'ach_6', name: '自動化の極み', desc: '秒間生産量(CPS)が 1,000 を突破。', unlocked: false, check: () => getCps() >= 1000 },
+            { id: 'ach_7', name: 'コズミック・レジェンド', desc: '累計で 10,000,000 クリスタルを発掘。', unlocked: false, check: () => totalCrystals >= 10000000 }
+        ];
+
+        // --- 起動処理 ---
+        window.onload = function() {
+            loadGame();             // セーブデータの読み込み
+            renderBuildings();      // 施設HTMLの描画
+            renderUpgrades();       // アップグレードHTMLの描画
+            renderAchievements();   // 実績HTMLの描画
+            setupEventListeners();  // クリックイベントの登録
+            scheduleMeteor();       // 隕石の出現スケジュール開始
+            
+            // 自動セーブ（15秒ごと）
+            setInterval(() => saveGame(false), 15000);
+            
+            // ゲームループ開始 (100ms周期)
+            requestAnimationFrame(gameLoop);
+        };
+
+        // --- イベントの登録 ---
+        function setupEventListeners() {
+            const crystalBtn = document.getElementById('crystal-btn');
+            crystalBtn.addEventListener('click', (e) => {
+                const power = getClickPower();
+                crystals += power;
+                totalCrystals += power;
+                totalClicks++;
+
+                // ポップアップエフェクトの表示
+                showPopup(`+${formatNumber(power)}`, e.clientX, e.clientY);
+                updateUI();
+            });
+        }
+
+        // --- タブ切り替え ---
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+
+            const targetBtn = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
+            if (targetBtn) targetBtn.classList.add('active');
+
+            const targetPane = document.getElementById(`tab-${tabId}`);
+            if (targetPane) targetPane.classList.add('active');
+        }
+
+        // --- ゲームループ（0.1秒ごとの更新・自動生産） ---
+        function gameLoop() {
+            const now = Date.now();
+            const dt = (now - lastUpdateTime) / 1000; // 前フレームからの経過時間（秒）
+            lastUpdateTime = now;
+
+            // バフ（Frenzy）のタイマー更新
+            if (buffTimer > 0) {
+                buffTimer -= dt;
+                if (buffTimer <= 0) {
+                    buffTimer = 0;
+                    buffMultiplier = 1;
+                    document.getElementById('crystal-btn').classList.remove('frenzy-active');
+                    document.getElementById('buff-timer').classList.remove('active');
+                } else {
+                    document.getElementById('buff-timer').textContent = `FRENZY 3倍中! (${buffTimer.toFixed(1)}s)`;
+                }
+            }
+
+            // 自動生産クリスタルの加算
+            const currentCps = getCps();
+            const gain = currentCps * dt;
+            crystals += gain;
+            totalCrystals += gain;
+
+            // 実績の条件を常時チェック
+            checkAchievements();
+
+            // UI数値の毎フレーム更新
+            updateUI();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- 数値のフォーマット ---
+        function formatNumber(num, decimals = 1) {
+            if (num < 1000) {
+                return num % 1 === 0 ? num.toString() : num.toFixed(decimals);
+            }
+            const suffixes = ["", "K", "M", "B", "T", "Qa", "Qi"];
+            const i = Math.min(Math.floor(Math.log10(num) / 3), suffixes.length - 1);
+            const formatted = (num / Math.pow(10, i * 3)).toFixed(2);
+            return formatted + suffixes[i];
+        }
+
+        // --- 計算処理 ---
+        // 現在の合計CPS（秒間生産量）を計算
+        function getCps() {
+            let total = 0;
+            buildings.forEach(b => {
+                total += b.count * b.cps * b.multiplier;
+            });
+            return total * globalCpsMultiplier * buffMultiplier;
+        }
+
+        // 現在の1クリックあたりの価値
+        function getClickPower() {
+            return (baseClickValue + clickValueUpgrades) * (buffMultiplier === 3 ? 3 : 1);
+        }
+
+        function getBuildingCount(id) {
+            const b = buildings.find(x => x.id === id);
+            return b ? b.count : 0;
+        }
+
+        function getTotalBuildings() {
+            return buildings.reduce((sum, b) => sum + b.count, 0);
+        }
+
+        // --- UI表示の更新 ---
+        function updateUI() {
+            document.getElementById('crystals-display').textContent = formatNumber(crystals);
+            document.getElementById('cps-display').textContent = `毎秒: ${formatNumber(getCps())} クリスタル`;
+            
+            // 統計データの更新
+            document.getElementById('stat-total-crystals').textContent = formatNumber(totalCrystals);
+            document.getElementById('stat-total-clicks').textContent = totalClicks.toLocaleString();
+            document.getElementById('stat-click-power').textContent = formatNumber(getClickPower());
+            document.getElementById('stat-meteors').textContent = clickedMeteors;
+
+            // 各ボタンの購入可能性チェック（活性・非活性の制御）
+            updateButtonStates();
+        }
+
+        function updateButtonStates() {
+            // 施設購入ボタン
+            buildings.forEach(b => {
+                const btn = document.getElementById(`btn-${b.id}`);
+                if (btn) {
+                    if (crystals >= b.cost) {
+                        btn.classList.remove('disabled');
+                    } else {
+                        btn.classList.add('disabled');
+                    }
+                }
+            });
+
+            // アップグレード購入ボタン
+            upgrades.forEach(u => {
+                const btn = document.getElementById(`btn-${u.id}`);
+                if (btn) {
+                    if (crystals >= u.cost) {
+                        btn.classList.remove('disabled');
+                    } else {
+                        btn.classList.add('disabled');
+                    }
+                }
+            });
+        }
+
+        // --- クリック時の+1ポップアップ生成 ---
+        function showPopup(text, x, y, customColor = '') {
+            const popup = document.createElement('div');
+            popup.className = 'click-popup tech-font';
+            popup.textContent = text;
+            popup.style.left = `${x}px`;
+            popup.style.top = `${y}px`;
+            if (customColor) {
+                popup.style.color = customColor;
+                popup.style.textShadow = `0 0 6px ${customColor}`;
+            }
+            document.body.appendChild(popup);
+
+            setTimeout(() => popup.remove(), 800);
+        }
+
+        // --- 施設の描画 ---
+        function renderBuildings() {
+            const container = document.getElementById('buildings-list');
+            container.innerHTML = '';
+            
+            buildings.forEach(b => {
+                const el = document.createElement('div');
+                el.id = `btn-${b.id}`;
+                el.className = 'building-item disabled';
+                el.onclick = () => buyBuilding(b.id);
+                
+                el.innerHTML = `
+                    <div class="building-info">
+                        <div class="building-name">${b.name}</div>
+                        <div class="building-desc">${b.desc}</div>
+                        <div class="building-stats">1個あたり: +${formatNumber(b.cps * b.multiplier)}/s</div>
+                    </div>
+                    <div class="building-cost-box">
+                        <div class="building-cost tech-font">${formatNumber(b.cost)}</div>
+                        <div class="building-count tech-font">${b.count}</div>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        // 施設購入
+        function buyBuilding(id) {
+            const b = buildings.find(x => x.id === id);
+            if (!b || crystals < b.cost) return;
+
+            crystals -= b.cost;
+            b.count++;
+            b.cost = Math.floor(b.baseCost * Math.pow(1.15, b.count)); // コスト増加
+
+            renderBuildings();
+            updateUI();
+        }
+
+        // --- アップグレードの描画 ---
+        function renderUpgrades() {
+            const container = document.getElementById('upgrades-list');
+            container.innerHTML = '';
+
+            let hasAvailable = false;
+            upgrades.forEach(u => {
+                if (u.purchased) return; // 購入済は描画しない
+
+                hasAvailable = true;
+                const el = document.createElement('div');
+                el.id = `btn-${u.id}`;
+                el.className = 'upgrade-item disabled';
+                el.onclick = () => buyUpgrade(u.id);
+
+                el.innerHTML = `
+                    <div class="upgrade-info">
+                        <div class="upgrade-name">${u.name}</div>
+                        <div class="upgrade-desc">${u.desc}</div>
+                    </div>
+                    <div class="upgrade-cost tech-font">${formatNumber(u.cost)}</div>
+                `;
+                container.appendChild(el);
+            });
+
+            if (!hasAvailable) {
+                container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 20px;">現在利用可能な技術革新はありません</div>';
+            }
+        }
+
+        // アップグレード購入
+        function buyUpgrade(id) {
+            const u = upgrades.find(x => x.id === id);
+            if (!u || u.purchased || crystals < u.cost) return;
+
+            crystals -= u.cost;
+            u.purchased = true;
+
+            // 効果の適用
+            if (u.type === 'click_add') {
+                clickValueUpgrades += u.value;
+            } else if (u.type === 'building_mult') {
+                const target = buildings.find(b => b.id === u.targetId);
+                if (target) {
+                    target.multiplier *= u.value;
+                }
+            } else if (u.type === 'global_mult') {
+                globalCpsMultiplier *= u.value;
+            }
+
+            renderBuildings(); // 施設効率などの表記更新のため再描画
+            renderUpgrades();
+            updateUI();
+        }
+
+        // --- 実績の描画 ---
+        function renderAchievements() {
+            const container = document.getElementById('achievements-list');
+            container.innerHTML = '';
+
+            achievements.forEach(ach => {
+                const el = document.createElement('div');
+                el.className = `achievement-item ${ach.unlocked ? 'unlocked' : ''}`;
+                
+                el.innerHTML = `
+                    <div class="achievement-badge">⚡</div>
+                    <div class="achievement-details">
+                        <div class="achievement-title">${ach.name}</div>
+                        <div class="achievement-desc">${ach.desc}</div>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        // 実績の解除チェック
+        function checkAchievements() {
+            achievements.forEach(ach => {
+                if (!ach.unlocked && ach.check()) {
+                    ach.unlocked = true;
+                    showAchievementNotification(ach.name, ach.desc);
+                    renderAchievements();
+                }
+            });
+        }
+
+        // 実績解除のバナー通知
+        function showAchievementNotification(title, desc) {
+            const notif = document.getElementById('ach-notification');
+            document.getElementById('notif-message').textContent = `${title} (${desc})`;
+            
+            notif.classList.add('show');
+            setTimeout(() => {
+                notif.classList.remove('show');
+            }, 4000); // 4秒後に非表示
+        }
+
+        // --- ランダムイベント（宇宙隕石） ---
+        function spawnMeteor() {
+            // 既に隕石がある場合は出現させない
+            if (document.querySelector('.meteor')) return;
+
+            const meteor = document.createElement('div');
+            meteor.className = 'meteor';
+            
+            // 画面の邪魔にならないランダム位置
+            const x = Math.random() * (window.innerWidth - 100) + 50;
+            const y = Math.random() * (window.innerHeight - 150) + 70;
+            meteor.style.left = `${x}px`;
+            meteor.style.top = `${y}px`;
+
+            // クリック時のイベント
+            meteor.addEventListener('click', (e) => {
+                e.stopPropagation(); // 左パネルなどのクリック伝播を防止
+                clickedMeteors++;
+                meteor.remove();
+
+                // 50%の確率で即時獲得、50%でFrenzy
+                if (Math.random() < 0.5) {
+                    const bonus = Math.max(50, getCps() * 180); // 180秒(3分)分のCPS
+                    crystals += bonus;
+                    totalCrystals += bonus;
+                    showPopup(`隕石回収! +${formatNumber(bonus)}`, e.clientX, e.clientY, '#ff007f');
+                } else {
+                    buffTimer = 15; // 15秒間
+                    buffMultiplier = 3; // 3倍
+                    document.getElementById('crystal-btn').classList.add('frenzy-active');
+                    document.getElementById('buff-timer').classList.add('active');
+                    showPopup(`FRENZY (生産力3倍)!`, e.clientX, e.clientY, '#ff007f');
+                }
+                updateUI();
+            });
+
+            document.body.appendChild(meteor);
+
+            // 10秒以内にクリックされない場合は消滅
+            setTimeout(() => {
+                if (meteor.parentNode) meteor.remove();
+            }, 10000);
+        }
+
+        // 隕石の定期出現スケジュール（30〜60秒のランダム）
+        function scheduleMeteor() {
+            const nextTime = (Math.random() * 30 + 30) * 1000;
+            setTimeout(() => {
+                spawnMeteor();
+                scheduleMeteor();
+            }, nextTime);
+        }
+
+        // --- セーブとロード ---
+        // セーブ
+        function saveGame(isManual = false) {
+            const saveData = {
+                crystals,
+                totalCrystals,
+                totalClicks,
+                clickedMeteors,
+                clickValueUpgrades,
+                globalCpsMultiplier,
+                buildings: buildings.map(b => ({ id: b.id, count: b.count, cost: b.cost, multiplier: b.multiplier })),
+                upgrades: upgrades.map(u => ({ id: u.id, purchased: u.purchased })),
+                achievements: achievements.map(a => ({ id: a.id, unlocked: a.unlocked }))
+            };
+
+            localStorage.setItem('cosmic_clicker_save', JSON.stringify(saveData));
+            
+            if (isManual) {
+                alert('進行状況を手動セーブしました！');
+            }
+        }
+
+        // ロード
+        function loadGame() {
+            const savedStr = localStorage.getItem('cosmic_clicker_save');
+            if (!savedStr) return;
+
+            try {
+                const data = JSON.parse(savedStr);
+                
+                if (data.crystals !== undefined) crystals = data.crystals;
+                if (data.totalCrystals !== undefined) totalCrystals = data.totalCrystals;
+                if (data.totalClicks !== undefined) totalClicks = data.totalClicks;
+                if (data.clickedMeteors !== undefined) clickedMeteors = data.clickedMeteors;
+                if (data.clickValueUpgrades !== undefined) clickValueUpgrades = data.clickValueUpgrades;
+                if (data.globalCpsMultiplier !== undefined) globalCpsMultiplier = data.globalCpsMultiplier;
+
+                // 施設復元
+                if (data.buildings) {
+                    data.buildings.forEach(sb => {
+                        const b = buildings.find(x => x.id === sb.id);
+                        if (b) {
+                            b.count = sb.count || 0;
+                            b.cost = sb.cost || b.baseCost;
+                            b.multiplier = sb.multiplier || 1;
+                        }
+                    });
+                }
+
+                // アップグレード復元
+                if (data.upgrades) {
+                    data.upgrades.forEach(su => {
+                        const u = upgrades.find(x => x.id === su.id);
+                        if (u) {
+                            u.purchased = su.purchased || false;
+                        }
+                    });
+                }
+
+                // 実績復元
+                if (data.achievements) {
+                    data.achievements.forEach(sa => {
+                        const a = achievements.find(x => x.id === sa.id);
+                        if (a) {
+                            a.unlocked = sa.unlocked || false;
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error("セーブデータの読み込み中にエラーが発生しました", e);
+            }
+        }
+
+        // ゲーム初期化（リセット）
+        function resetGame() {
+            if (confirm('本当に進行データを削除して、最初からやり直しますか？')) {
+                localStorage.removeItem('cosmic_clicker_save');
+                location.reload();
+            }
+        }
+    </script>
+</body>
+</html>
