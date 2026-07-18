@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COSMIC CLICKER - リアルタイムマルチプレイ対応版</title>
+    <title>COSMIC CLICKER - バックグラウンド・チャット対応</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
     
     <!-- 登録不要でリアルタイム通信を行うためのMQTTライブラリをCDNから読込 -->
@@ -70,7 +70,7 @@
             border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 8px;
             padding: 10px;
-            margin-bottom: 25px;
+            margin-bottom: 15px;
             text-align: center;
         }
 
@@ -105,7 +105,7 @@
 
         .stats-container {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
 
         .crystal-count {
@@ -124,12 +124,12 @@
         /* クリスタル */
         .crystal-wrapper {
             position: relative;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
 
         .crystal {
-            width: 160px;
-            height: 210px;
+            width: 150px;
+            height: 200px;
             background: linear-gradient(135deg, #00f2fe 0%, #4facfe 40%, #c084fc 100%);
             clip-path: polygon(50% 0%, 85% 25%, 85% 75%, 50% 100%, 15% 75%, 15% 25%);
             box-shadow: 0 0 35px rgba(0, 242, 254, 0.4);
@@ -182,45 +182,103 @@
             opacity: 1;
         }
 
-        /* 画面左下：オンラインログ */
+        /* 画面左下：オンラインチャット＆ログ */
         .log-panel {
             position: absolute;
             bottom: 20px;
             left: 20px;
-            width: 280px;
-            height: 110px;
+            width: 320px;
+            height: 180px;
             background: rgba(9, 10, 16, 0.85);
             border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 6px;
-            padding: 8px;
-            font-size: 11px;
-            overflow-y: hidden;
+            padding: 10px;
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            pointer-events: none;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            pointer-events: auto; /* チャット入力のために有効化 */
         }
 
         .log-title {
             color: #94a3b8;
             font-weight: bold;
+            font-size: 11px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 2px;
-            margin-bottom: 2px;
+            padding-bottom: 4px;
+            margin-bottom: 6px;
+        }
+
+        .log-content {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 8px;
+            padding-right: 4px;
         }
 
         .log-item {
-            color: #64748b;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            animation: fadeIn 0.3s ease forwards;
+            font-size: 11px;
+            word-break: break-all;
+            line-height: 1.4;
+            animation: fadeIn 0.2s ease forwards;
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(4px); }
+            from { opacity: 0; transform: translateY(2px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* チャットのスクロールバー微調整 */
+        .log-content::-webkit-scrollbar {
+            width: 4px;
+        }
+        .log-content::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.01);
+        }
+        .log-content::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+        }
+
+        /* チャット入力エリア */
+        .chat-input-area {
+            display: flex;
+            gap: 6px;
+        }
+
+        .chat-input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            padding: 6px 10px;
+            color: #fff;
+            font-size: 11px;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: #00f2fe;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .chat-btn {
+            background: rgba(0, 242, 254, 0.15);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            color: #00f2fe;
+            border-radius: 4px;
+            padding: 0 12px;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .chat-btn:hover {
+            background: #00f2fe;
+            color: #05050a;
         }
 
         /* --- 右パネル（タブ） --- */
@@ -610,11 +668,16 @@
             <div id="crystal-btn" class="crystal"></div>
         </div>
 
-        <!-- アクティビティログ -->
+        <!-- アクティビティログ ＆ チャット -->
         <div class="log-panel">
-            <div class="log-title tech-font">GALACTIC FEED (ACTIVITY LOG)</div>
-            <div id="log-content" style="display:flex; flex-direction:column-reverse; gap:2px; height:100%; overflow:hidden;">
-                <!-- ログ内容 -->
+            <div class="log-title tech-font">GALACTIC FEED & CHAT</div>
+            <div id="log-content" class="log-content">
+                <!-- ログとチャットメッセージがここに追加されます -->
+            </div>
+            <!-- チャット入力エリア -->
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" class="chat-input" placeholder="メッセージを入力..." maxlength="50" onkeydown="handleChatKey(event)">
+                <button class="chat-btn" onclick="sendChat()">送信</button>
             </div>
         </div>
     </div>
@@ -698,15 +761,13 @@
         // ==========================================
         // 🌐 MQTT MULTIPLAYER CONFIGURATION
         // ==========================================
-        // 登録・キー不要のフリーパブリックWebsocket MQTTブローカーを使用します。
         const MQTT_BROKER = 'wss://broker.emqx.io:8084/mqtt';
         const MQTT_TOPIC = 'cosmic_clicker_p2p_v3/lobby';
 
         let client = null;
         let isOnline = false;
-        let activePlayers = {}; // 他のアクティブなオンラインプレイヤーを保持するオブジェクト
+        let activePlayers = {}; 
 
-        // アプリケーションごとに一意の端末IDを生成（シークレットモードでは別IDが発行される）
         let userId = getOrCreateUserId();
         let username = getOrCreateUsername();
 
@@ -797,6 +858,27 @@
             // 15秒ごとのローカル自動セーブ
             setInterval(() => saveGame(false), 15000);
 
+            // 🔄 裏画面（非アクティブタブ）対応専用の1秒周期タイマー
+            // 画面が非表示のときだけ、このタイマーで自動生産と同期を維持します。
+            setInterval(() => {
+                if (document.hidden) {
+                    const now = Date.now();
+                    const dt = (now - lastUpdateTime) / 1000;
+                    lastUpdateTime = now;
+
+                    const currentCps = getCps();
+                    crystals += currentCps * dt;
+                    totalCrystals += currentCps * dt;
+
+                    // 3秒に1回相当でパブリッシュ
+                    if (now - lastSyncTime > 3000) {
+                        publishSyncData();
+                        cleanInactivePlayers();
+                        lastSyncTime = now;
+                    }
+                }
+            }, 1000);
+
             requestAnimationFrame(gameLoop);
         };
 
@@ -813,6 +895,7 @@
             });
         }
 
+        // 描画を伴うメインループ（表画面にいる間のみ高速回転）
         function gameLoop() {
             const now = Date.now();
             const dt = (now - lastUpdateTime) / 1000;
@@ -831,19 +914,21 @@
                 }
             }
 
-            // 自動生産
-            const currentCps = getCps();
-            crystals += currentCps * dt;
-            totalCrystals += currentCps * dt;
+            // 表画面にいる間のみ生産処理を走らせる（裏画面の時は上のsetIntervalで対応）
+            if (!document.hidden) {
+                const currentCps = getCps();
+                crystals += currentCps * dt;
+                totalCrystals += currentCps * dt;
 
-            checkAchievements();
-            updateUI();
+                checkAchievements();
+                updateUI();
 
-            // 3秒に1回、他のプレイヤーに自分の最新データを配信
-            if (now - lastSyncTime > 3000) {
-                publishSyncData();
-                cleanInactivePlayers(); // 接続が途絶えた古いプレイヤーを除去
-                lastSyncTime = now;
+                // 3秒に1回の同期判定
+                if (now - lastSyncTime > 3000) {
+                    publishSyncData();
+                    cleanInactivePlayers(); 
+                    lastSyncTime = now;
+                }
             }
 
             requestAnimationFrame(gameLoop);
@@ -856,7 +941,6 @@
             const statusBadge = document.getElementById('connection-status');
             
             try {
-                // MQTT over WebSocket で接続
                 client = mqtt.connect(MQTT_BROKER, {
                     connectTimeout: 4000,
                     reconnectPeriod: 5000
@@ -867,7 +951,6 @@
                     statusBadge.className = 'status-badge online';
                     statusBadge.textContent = 'ONLINE';
                     
-                    // 擬似AIの動作をリセット・停止してクリーンな本物だけの部屋にする
                     if (mockInterval) clearInterval(mockInterval);
                     activePlayers = {}; 
 
@@ -883,10 +966,9 @@
                     if (topic !== MQTT_TOPIC) return;
                     try {
                         const payload = JSON.parse(message.toString());
-                        if (payload.userId === userId) return; // 自分の発言はスルー
+                        if (payload.userId === userId) return; 
 
                         if (payload.type === 'sync') {
-                            // 受信したプレイヤーデータを登録
                             activePlayers[payload.userId] = {
                                 username: payload.username,
                                 crystals: payload.crystals,
@@ -896,7 +978,9 @@
                             };
                             updateMultiplayStats();
                         } else if (payload.type === 'event') {
-                            addLogToUI(payload.username, payload.text);
+                            addLogToUI(payload.username, payload.text, false);
+                        } else if (payload.type === 'chat') {
+                            addLogToUI(payload.username, payload.text, true);
                         }
                     } catch (e) {
                         console.error("ネットワークメッセージの解析に失敗しました", e);
@@ -906,7 +990,7 @@
                 client.on('close', () => {
                     if (isOnline) {
                         isOnline = false;
-                        initMockConnection(); // 切断時は瞬時にAI疑似モードへ移行
+                        initMockConnection(); 
                     }
                 });
 
@@ -915,7 +999,6 @@
                     if (!isOnline) initMockConnection();
                 });
 
-                // 4秒間接続できない場合、自動的にローカル疑似モードへ切り替え
                 setTimeout(() => {
                     if (!isOnline) {
                         console.log("接続タイムアウト。疑似オンラインへフォールバックします。");
@@ -929,7 +1012,7 @@
             }
         }
 
-        // 3秒ごとのデータ送信
+        // 同期データの送信
         function publishSyncData() {
             if (!isOnline || !client || !client.connected) return;
 
@@ -945,7 +1028,7 @@
             client.publish(MQTT_TOPIC, JSON.stringify(syncMsg));
         }
 
-        // 銀河フィードへの活動イベント送信
+        // システムログメッセージの送信
         function postActivityLog(text) {
             if (isOnline && client && client.connected) {
                 const eventMsg = {
@@ -956,18 +1039,43 @@
                 };
                 client.publish(MQTT_TOPIC, JSON.stringify(eventMsg));
             }
-            addLogToUI(username, text);
+            addLogToUI(username, text, false);
         }
 
-        // 一定時間（6秒以上）発言のないプレイヤーをオフライン化
+        // 💬 チャットメッセージの送信
+        window.sendChat = function() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (text === '') return;
+
+            if (isOnline && client && client.connected) {
+                const chatMsg = {
+                    type: 'chat',
+                    userId: userId,
+                    username: username,
+                    text: text
+                };
+                client.publish(MQTT_TOPIC, JSON.stringify(chatMsg));
+            }
+            addLogToUI(username, text, true); // 自分自身の画面に即時反映
+            input.value = '';
+        }
+
+        window.handleChatKey = function(event) {
+            if (event.key === 'Enter') {
+                window.sendChat();
+            }
+        }
+
+        // ⏱️ 生存確認判定
+        // ブラウザのバックグラウンド制限で通信が遅れることを考慮し、判定の猶予を「45秒」に緩和
         function cleanInactivePlayers() {
             const now = Date.now();
             let changed = false;
             Object.keys(activePlayers).forEach(id => {
-                // AIプレイヤーはオフライン判定から除外
                 if (id.startsWith('mock_')) return;
 
-                if (now - activePlayers[id].lastActive > 6000) {
+                if (now - activePlayers[id].lastActive > 45000) {
                     delete activePlayers[id];
                     changed = true;
                 }
@@ -981,33 +1089,29 @@
         // 🤖 疑似オンライン（AI制御）
         // ==========================================
         function initMockConnection() {
-            if (mockInterval) return; // 既に開始していれば処理しない
+            if (mockInterval) return; 
             
             const statusBadge = document.getElementById('connection-status');
             statusBadge.className = 'status-badge offline';
             statusBadge.textContent = 'PSEUDO-ONLINE (LOCAL AI)';
 
-            // 3秒ごとに擬似AIプレイヤーの状態を変化
             mockInterval = setInterval(() => {
                 mockPlayers.forEach(p => {
                     p.crystals += p.cps * 3;
                     p.totalCrystals += p.cps * 3;
                     p.totalClicks += Math.floor(p.cps * 0.1) + 1;
 
-                    // 8%の確率でAIが新しい施設を購入
                     if (Math.random() < 0.08) {
                         const randomB = buildings[Math.floor(Math.random() * 4)];
                         p.cps += randomB.cps;
                         p.crystals = Math.max(0, p.crystals - randomB.cost * 0.5);
-                        addLogToUI(p.username, `${randomB.name} を購入しました！`);
+                        addLogToUI(p.username, `${randomB.name} を購入しました！`, false);
                     }
-                    // 4%の確率でAIが隕石回収
                     if (Math.random() < 0.04) {
                         p.crystals += p.cps * 100;
-                        addLogToUI(p.username, `隕石を回収しました！`);
+                        addLogToUI(p.username, `隕石を回収しました！`, false);
                     }
 
-                    // 疑似的にマップに登録
                     activePlayers[p.userId] = {
                         username: p.username,
                         crystals: p.crystals,
@@ -1025,7 +1129,6 @@
         // MULTIPLAY STATISTICS & UI REBUILD
         // ==========================================
         function updateMultiplayStats() {
-            // 自分も含めた全員のプレイヤーリスト
             const playerList = Object.keys(activePlayers).map(id => activePlayers[id]);
             playerList.push({
                 userId: userId,
@@ -1035,7 +1138,6 @@
                 totalClicks: totalClicks
             });
 
-            // オンラインプレイヤーの人数表示を更新
             const onlineCount = playerList.length;
             const statusBadge = document.getElementById('connection-status');
             if (isOnline) {
@@ -1046,12 +1148,10 @@
                 statusBadge.className = 'status-badge offline';
             }
 
-            // オンラインプレイヤー全員の手動クリック総数をマージ（協力イベント進行度）
             const totalCoopClicks = playerList.reduce((sum, p) => sum + (p.totalClicks || 0), 0);
             currentCoopClicks = totalCoopClicks;
             updateCoopUI();
 
-            // ランキング順に並び替え
             playerList.sort((a, b) => b.crystals - a.crystals);
             updateRankingUI(playerList);
         }
@@ -1084,21 +1184,32 @@
 
             document.getElementById('coop-stats').textContent = `銀河累計クリック: ${currentCoopClicks.toLocaleString()} / ${COOP_GOAL.toLocaleString()} (${percent.toFixed(2)}%)`;
 
-            // 目標達成時のバフ適用
             if (currentCoopClicks >= COOP_GOAL) {
-                globalCpsMultiplier = 1.5; // 全体の自動生産力1.5倍化
+                globalCpsMultiplier = 1.5; 
             }
         }
 
-        function addLogToUI(user, text) {
+        // チャットとシステムメッセージを色分けしてログへ追加
+        function addLogToUI(user, text, isChat = false) {
             const container = document.getElementById('log-content');
             const item = document.createElement('div');
             item.className = 'log-item';
-            item.innerHTML = `<strong style="color: #00f2fe;">${user}</strong>: ${text}`;
+            
+            if (isChat) {
+                // 通常チャット：白テキスト、ユーザー名ブルー
+                item.innerHTML = `<strong style="color: #00f2fe;">${user}</strong>: <span style="color: #ffffff;">${text}</span>`;
+            } else {
+                // システムログ：紫色の[システム]表記、斜体文字
+                item.innerHTML = `<strong style="color: #c084fc;">[システム] ${user}</strong>: <span style="color: #94a3b8; font-style: italic;">${text}</span>`;
+            }
+            
             container.appendChild(item);
 
-            // ログ幅制限
-            while (container.childNodes.length > 5) {
+            // メッセージ送信時に最新位置へ自動スクロール
+            container.scrollTop = container.scrollHeight;
+
+            // 表示件数が多すぎる場合は、メモリ節約のため古いログから削除（最大50件）
+            while (container.childNodes.length > 50) {
                 container.removeChild(container.firstChild);
             }
         }
@@ -1385,7 +1496,6 @@
         // LOCAL STORAGE & DATA CONTROLLERS
         // ==========================================
         function getOrCreateUserId() {
-            // Cookieと同じ役割を果たすlocalStorageを使用（シークレットモードでは別空間になります）
             let uid = localStorage.getItem('cosmic_clicker_uid');
             if (!uid) {
                 uid = 'u_' + Math.random().toString(36).substring(2, 11);
