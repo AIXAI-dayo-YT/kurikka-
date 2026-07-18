@@ -3,644 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COSMIC CLICKER - バックグラウンド・チャット対応</title>
+    <title>COSMIC CLICKER - サーバーサイド監視版</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
-    
-    <!-- 登録不要でリアルタイム通信を行うためのMQTTライブラリをCDNから読込 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
-
     <style>
-        /* --- 基本スタイル --- */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            user-select: none;
-        }
-
-        body {
-            font-family: 'Noto Sans JP', sans-serif;
-            background-color: #05050a;
-            color: #e2e8f0;
-            height: 100vh;
-            display: flex;
-            overflow: hidden;
-        }
-
-        .tech-font {
-            font-family: 'Orbitron', sans-serif;
-        }
-
-        /* --- 左右レイアウト --- */
-        .left-panel {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-            background: radial-gradient(circle, #0f111a 0%, #05050a 100%);
-            border-right: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 20px;
-        }
-
-        .right-panel {
-            width: 480px;
-            display: flex;
-            flex-direction: column;
-            background: #090a10;
-            border-left: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        /* --- 左パネル（ゲームメイン） --- */
-        .game-title {
-            font-size: 24px;
-            letter-spacing: 4px;
-            color: #00f2fe;
-            text-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
-            margin-bottom: 10px;
-            font-weight: 900;
-        }
-
-        /* 協力型イベントプログレスバー */
-        .coop-container {
-            width: 80%;
-            max-width: 400px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 15px;
-            text-align: center;
-        }
-
-        .coop-title {
-            font-size: 11px;
-            color: #c084fc;
-            margin-bottom: 6px;
-            letter-spacing: 1px;
-        }
-
-        .coop-bar-bg {
-            width: 100%;
-            height: 8px;
-            background: #11131e;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-bottom: 4px;
-        }
-
-        .coop-bar-fill {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, #c084fc, #00f2fe);
-            box-shadow: 0 0 8px #c084fc;
-            transition: width 0.5s ease;
-        }
-
-        .coop-stats {
-            font-size: 10px;
-            color: #64748b;
-        }
-
-        .stats-container {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .crystal-count {
-            font-size: 40px;
-            font-weight: 700;
-            color: #ffffff;
-            text-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
-            margin-bottom: 4px;
-        }
-
-        .cps-count {
-            font-size: 15px;
-            color: #94a3b8;
-        }
-
-        /* クリスタル */
-        .crystal-wrapper {
-            position: relative;
-            margin-bottom: 20px;
-        }
-
-        .crystal {
-            width: 150px;
-            height: 200px;
-            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 40%, #c084fc 100%);
-            clip-path: polygon(50% 0%, 85% 25%, 85% 75%, 50% 100%, 15% 75%, 15% 25%);
-            box-shadow: 0 0 35px rgba(0, 242, 254, 0.4);
-            cursor: pointer;
-            transition: transform 0.05s ease, filter 0.1s ease;
-            position: relative;
-        }
-
-        .crystal::before {
-            content: '';
-            position: absolute;
-            top: 2%; left: 2%; right: 2%; bottom: 2%;
-            background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,0.4) 100%);
-            clip-path: polygon(50% 0%, 85% 25%, 85% 75%, 50% 100%, 15% 75%, 15% 25%);
-        }
-
-        .crystal:hover {
-            filter: brightness(1.2) drop-shadow(0 0 20px rgba(0, 242, 254, 0.8));
-            transform: scale(1.03);
-        }
-
-        .crystal:active {
-            transform: scale(0.96);
-        }
-
-        .crystal.frenzy-active {
-            animation: crystal-frenzy-anim 0.5s infinite alternate;
-        }
-
-        @keyframes crystal-frenzy-anim {
-            0% { box-shadow: 0 0 30px #ff007f, inset 0 0 10px #ff007f; filter: brightness(1.2) scale(1.02); }
-            100% { box-shadow: 0 0 50px #ff007f, inset 0 0 25px #ff007f; filter: brightness(1.4) scale(1.05); }
-        }
-
-        .buff-display {
-            font-size: 13px;
-            font-weight: bold;
-            color: #ff007f;
-            text-shadow: 0 0 8px rgba(255, 0, 127, 0.6);
-            background: rgba(255, 0, 127, 0.1);
-            border: 1px solid rgba(255, 0, 127, 0.3);
-            border-radius: 20px;
-            padding: 4px 14px;
-            margin-top: 10px;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-
-        .buff-display.active {
-            opacity: 1;
-        }
-
-        /* 画面左下：オンラインチャット＆ログ */
-        .log-panel {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            width: 320px;
-            height: 180px;
-            background: rgba(9, 10, 16, 0.85);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 6px;
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            pointer-events: auto; /* チャット入力のために有効化 */
-        }
-
-        .log-title {
-            color: #94a3b8;
-            font-weight: bold;
-            font-size: 11px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 4px;
-            margin-bottom: 6px;
-        }
-
-        .log-content {
-            flex: 1;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-bottom: 8px;
-            padding-right: 4px;
-        }
-
-        .log-item {
-            font-size: 11px;
-            word-break: break-all;
-            line-height: 1.4;
-            animation: fadeIn 0.2s ease forwards;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(2px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* チャットのスクロールバー微調整 */
-        .log-content::-webkit-scrollbar {
-            width: 4px;
-        }
-        .log-content::-webkit-scrollbar-track {
-            background: rgba(255,255,255,0.01);
-        }
-        .log-content::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.1);
-            border-radius: 2px;
-        }
-
-        /* チャット入力エリア */
-        .chat-input-area {
-            display: flex;
-            gap: 6px;
-        }
-
-        .chat-input {
-            flex: 1;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            padding: 6px 10px;
-            color: #fff;
-            font-size: 11px;
-        }
-
-        .chat-input:focus {
-            outline: none;
-            border-color: #00f2fe;
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .chat-btn {
-            background: rgba(0, 242, 254, 0.15);
-            border: 1px solid rgba(0, 242, 254, 0.3);
-            color: #00f2fe;
-            border-radius: 4px;
-            padding: 0 12px;
-            font-size: 11px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s, color 0.2s;
-        }
-
-        .chat-btn:hover {
-            background: #00f2fe;
-            color: #05050a;
-        }
-
-        /* --- 右パネル（タブ） --- */
-        .tab-headers {
-            display: flex;
-            background: #11131e;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .tab-button {
-            flex: 1;
-            padding: 15px 0;
-            background: none;
-            border: none;
-            color: #94a3b8;
-            font-size: 12px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s, color 0.2s;
-            text-align: center;
-        }
-
-        .tab-button:hover {
-            background: rgba(255, 255, 255, 0.02);
-            color: #e2e8f0;
-        }
-
-        .tab-button.active {
-            color: #00f2fe;
-            border-bottom: 2px solid #00f2fe;
-            background: rgba(0, 242, 254, 0.02);
-        }
-
-        .tab-contents {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-        }
-
-        .tab-pane {
-            display: none;
-        }
-
-        .tab-pane.active {
-            display: block;
-        }
-
-        /* --- 施設 ＆ 強化スタイル --- */
-        .building-item, .upgrade-item {
-            display: flex;
-            align-items: center;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 12px;
-            cursor: pointer;
-            transition: background 0.2s, border-color 0.2s;
-        }
-
-        .building-item:hover, .upgrade-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(0, 242, 254, 0.3);
-        }
-
-        .building-item.disabled, .upgrade-item.disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            border-color: rgba(255, 255, 255, 0.05) !important;
-            background: rgba(255, 255, 255, 0.01) !important;
-        }
-
-        .building-info, .upgrade-info {
-            flex: 1;
-        }
-
-        .building-name, .upgrade-name {
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 2px;
-        }
-
-        .upgrade-name {
-            color: #c084fc;
-        }
-
-        .building-desc, .upgrade-desc {
-            font-size: 11px;
-            color: #64748b;
-        }
-
-        .building-cost-box, .upgrade-cost {
-            text-align: right;
-            padding-left: 10px;
-        }
-
-        .building-cost, .upgrade-cost {
-            font-size: 14px;
-            font-weight: bold;
-            color: #00f2fe;
-        }
-
-        .upgrade-cost {
-            color: #c084fc;
-        }
-
-        .building-count {
-            font-size: 18px;
-            font-weight: bold;
-            color: rgba(255, 255, 255, 0.25);
-        }
-
-        /* --- ランキングスタイル --- */
-        .ranking-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 10px;
-        }
-
-        .status-badge {
-            font-size: 10px;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-weight: bold;
-        }
-
-        .status-badge.online {
-            background: rgba(34, 197, 94, 0.15);
-            color: #22c55e;
-            border: 1px solid rgba(34, 197, 94, 0.3);
-        }
-
-        .status-badge.offline {
-            background: rgba(234, 179, 8, 0.15);
-            color: #eab308;
-            border: 1px solid rgba(234, 179, 8, 0.3);
-        }
-
-        .ranking-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .ranking-item {
-            display: flex;
-            align-items: center;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 6px;
-            padding: 10px 15px;
-        }
-
-        .ranking-item.self {
-            border-color: rgba(0, 242, 254, 0.4);
-            background: rgba(0, 242, 254, 0.03);
-        }
-
-        .rank-number {
-            width: 25px;
-            font-weight: bold;
-            font-size: 15px;
-            color: #64748b;
-        }
-
-        .rank-number.top-rank {
-            color: #00f2fe;
-        }
-
-        .rank-name {
-            flex: 1;
-            font-weight: bold;
-            font-size: 13px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .rank-values {
-            text-align: right;
-        }
-
-        .rank-crystals {
-            font-size: 13px;
-            font-weight: bold;
-        }
-
-        .rank-cps {
-            font-size: 10px;
-            color: #64748b;
-        }
-
-        /* --- 実績スタイル --- */
-        .achievement-item {
-            display: flex;
-            align-items: center;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-            opacity: 0.35;
-        }
-
-        .achievement-item.unlocked {
-            opacity: 1;
-            background: rgba(0, 242, 254, 0.03);
-            border-color: rgba(0, 242, 254, 0.3);
-        }
-
-        .achievement-badge {
-            width: 32px;
-            height: 32px;
-            background: #1e293b;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-            margin-right: 12px;
-        }
-
-        .achievement-item.unlocked .achievement-badge {
-            background: #00f2fe;
-            color: #05050a;
-        }
-
-        /* --- 管理・統計 --- */
-        .stats-list {
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stats-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            font-size: 13px;
-        }
-
-        .input-group {
-            margin-bottom: 15px;
-        }
-
-        .input-group label {
-            display: block;
-            font-size: 12px;
-            color: #94a3b8;
-            margin-bottom: 6px;
-        }
-
-        .text-input {
-            width: 100%;
-            padding: 10px;
-            background: #11131e;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            color: #fff;
-            font-size: 13px;
-        }
-
-        .btn-action {
-            display: block;
-            width: 100%;
-            padding: 12px;
-            background: rgba(244, 63, 94, 0.15);
-            border: 1px solid rgba(244, 63, 94, 0.3);
-            color: #f43f5e;
-            font-size: 13px;
-            font-weight: bold;
-            border-radius: 6px;
-            cursor: pointer;
-            text-align: center;
-            margin-bottom: 10px;
-        }
-
-        .btn-action:hover { background: #f43f5e; color: #fff; }
-
-        .btn-save {
-            background: rgba(0, 242, 254, 0.15);
-            border: 1px solid rgba(0, 242, 254, 0.3);
-            color: #00f2fe;
-        }
-
-        .btn-save:hover { background: #00f2fe; color: #05050a; }
-
-        /* --- 演出・隕石等 --- */
-        .meteor {
-            position: absolute;
-            width: 44px;
-            height: 44px;
-            background: radial-gradient(circle, #ff007f 0%, #7928ca 100%);
-            border-radius: 50%;
-            box-shadow: 0 0 20px #ff007f;
-            cursor: pointer;
-            z-index: 100;
-            animation: meteor-pulse 1s infinite alternate, meteor-float 12s linear forwards;
-        }
-
-        @keyframes meteor-pulse {
-            0% { transform: scale(1); }
-            100% { transform: scale(1.15); }
-        }
-
-        @keyframes meteor-float {
-            0% { opacity: 0; }
-            10% { opacity: 1; }
-            90% { opacity: 1; }
-            100% { opacity: 0; }
-        }
-
-        .click-popup {
-            position: absolute;
-            color: #00f2fe;
-            font-weight: 900;
-            font-size: 20px;
-            pointer-events: none;
-            animation: popup-anim 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-            text-shadow: 0 0 6px rgba(0, 242, 254, 0.8);
-            z-index: 10;
-        }
-
-        @keyframes popup-anim {
-            0% { transform: translate(-50%, -50%) translateY(0) scale(1); opacity: 1; }
-            100% { transform: translate(-50%, -50%) translateY(-100px) scale(0.8); opacity: 0; }
-        }
-
-        .notification {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(9, 10, 16, 0.95);
-            border: 1px solid #ff007f;
-            box-shadow: 0 0 15px rgba(255, 0, 127, 0.3);
-            border-radius: 8px;
-            padding: 12px 20px;
-            color: #fff;
-            z-index: 1000;
-            transform: translateY(100px);
-            opacity: 0;
-            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s;
-            pointer-events: none;
-            width: 300px;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body { font-family: 'Noto Sans JP', sans-serif; background-color: #05050a; color: #e2e8f0; height: 100vh; display: flex; overflow: hidden; }
+        .tech-font { font-family: 'Orbitron', sans-serif; }
+        .left-panel { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; background: radial-gradient(circle, #0f111a 0%, #05050a 100%); border-right: 1px solid rgba(255, 255, 255, 0.05); padding: 20px; }
+        .right-panel { width: 480px; display: flex; flex-direction: column; background: #090a10; border-left: 1px solid rgba(255, 255, 255, 0.05); }
+        .game-title { font-size: 24px; letter-spacing: 4px; color: #00f2fe; text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); margin-bottom: 10px; font-weight: 900; }
+        .coop-container { width: 80%; max-width: 400px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px; margin-bottom: 15px; text-align: center; }
+        .coop-title { font-size: 11px; color: #c084fc; margin-bottom: 6px; letter-spacing: 1px; }
+        .coop-bar-bg { width: 100%; height: 8px; background: #11131e; border-radius: 4px; overflow: hidden; margin-bottom: 4px; }
+        .coop-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #c084fc, #00f2fe); box-shadow: 0 0 8px #c084fc; transition: width 0.5s ease; }
+        .coop-stats { font-size: 10px; color: #64748b; }
+        .stats-container { text-align: center; margin-bottom: 20px; }
+        .crystal-count { font-size: 40px; font-weight: 700; color: #ffffff; text-shadow: 0 0 15px rgba(255, 255, 255, 0.5); margin-bottom: 4px; }
+        .cps-count { font-size: 15px; color: #94a3b8; }
+        .crystal-wrapper { position: relative; margin-bottom: 20px; }
+        .crystal { width: 150px; height: 200px; background: linear-gradient(135deg, #00f2fe 0%, #4facfe 40%, #c084fc 100%); clip-path: polygon(50% 0%, 85% 25%, 85% 75%, 50% 100%, 15% 75%, 15% 25%); box-shadow: 0 0 35px rgba(0, 242, 254, 0.4); cursor: pointer; transition: transform 0.05s ease, filter 0.1s ease; position: relative; }
+        .crystal::before { content: ''; position: absolute; top: 2%; left: 2%; right: 2%; bottom: 2%; background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,0.4) 100%); clip-path: polygon(50% 0%, 85% 25%, 85% 75%, 50% 100%, 15% 75%, 15% 25%); }
+        .crystal:hover { filter: brightness(1.2) drop-shadow(0 0 20px rgba(0, 242, 254, 0.8)); transform: scale(1.03); }
+        .crystal:active { transform: scale(0.96); }
+        .log-panel { position: absolute; bottom: 20px; left: 20px; width: 320px; height: 180px; background: rgba(9, 10, 16, 0.85); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        .log-title { color: #94a3b8; font-weight: bold; font-size: 11px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 4px; margin-bottom: 6px; }
+        .log-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+        .log-item { font-size: 11px; word-break: break-all; line-height: 1.4; }
+        .chat-input-area { display: flex; gap: 6px; }
+        .chat-input { flex: 1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 6px 10px; color: #fff; font-size: 11px; }
+        .chat-input:focus { outline: none; border-color: #00f2fe; background: rgba(255, 255, 255, 0.08); }
+        .chat-btn { background: rgba(0, 242, 254, 0.15); border: 1px solid rgba(0, 242, 254, 0.3); color: #00f2fe; border-radius: 4px; padding: 0 12px; font-size: 11px; font-weight: bold; cursor: pointer; }
+        .tab-headers { display: flex; background: #11131e; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+        .tab-button { flex: 1; padding: 15px 0; background: none; border: none; color: #94a3b8; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; }
+        .tab-button.active { color: #00f2fe; border-bottom: 2px solid #00f2fe; background: rgba(0, 242, 254, 0.02); }
+        .tab-contents { flex: 1; overflow-y: auto; padding: 20px; }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+        .building-item, .upgrade-item { display: flex; align-items: center; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 12px; cursor: pointer; }
+        .building-item.disabled, .upgrade-item.disabled { opacity: 0.5; cursor: not-allowed; }
+        .building-info, .upgrade-info { flex: 1; }
+        .building-name, .upgrade-name { font-weight: bold; font-size: 14px; margin-bottom: 2px; }
+        .upgrade-name { color: #c084fc; }
+        .building-desc, .upgrade-desc { font-size: 11px; color: #64748b; }
+        .building-cost-box, .upgrade-cost { text-align: right; padding-left: 10px; }
+        .building-cost, .upgrade-cost { font-size: 14px; font-weight: bold; color: #00f2fe; }
+        .upgrade-cost { color: #c084fc; }
+        .building-count { font-size: 18px; font-weight: bold; color: rgba(255, 255, 255, 0.25); }
+        .ranking-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 10px; }
+        .status-badge { font-size: 10px; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
+        .status-badge.online { background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .status-badge.offline { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .ranking-list { display: flex; flex-direction: column; gap: 8px; }
+        .ranking-item { display: flex; align-items: center; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 10px 15px; }
+        .ranking-item.self { border-color: rgba(0, 242, 254, 0.4); background: rgba(0, 242, 254, 0.03); }
+        .rank-number { width: 25px; font-weight: bold; font-size: 15px; color: #64748b; }
+        .rank-number.top-rank { color: #00f2fe; }
+        .rank-name { flex: 1; font-weight: bold; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rank-values { text-align: right; }
+        .rank-crystals { font-size: 13px; font-weight: bold; }
+        .rank-cps { font-size: 10px; color: #64748b; }
+        .achievement-item { display: flex; align-items: center; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 10px; opacity: 0.35; }
+        .achievement-item.unlocked { opacity: 1; background: rgba(0, 242, 254, 0.03); border-color: rgba(0, 242, 254, 0.3); }
+        .achievement-badge { width: 32px; height: 32px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-right: 12px; }
+        .achievement-item.unlocked .achievement-badge { background: #00f2fe; color: #05050a; }
+        .stats-list { background: rgba(255, 255, 255, 0.02); border-radius: 8px; padding: 15px; margin-bottom: 20px; }
+        .stats-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 13px; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
+        .text-input { width: 100%; padding: 10px; background: #11131e; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #fff; font-size: 13px; }
+        .btn-action { display: block; width: 100%; padding: 12px; background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.3); color: #f43f5e; font-size: 13px; font-weight: bold; border-radius: 6px; cursor: pointer; text-align: center; margin-bottom: 10px; }
+        .btn-save { background: rgba(0, 242, 254, 0.15); border: 1px solid rgba(0, 242, 254, 0.3); color: #00f2fe; }
+        .click-popup { position: absolute; color: #00f2fe; font-weight: 900; font-size: 20px; pointer-events: none; animation: popup-anim 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards; text-shadow: 0 0 6px rgba(0, 242, 254, 0.8); z-index: 10; }
+        @keyframes popup-anim { 0% { transform: translate(-50%, -50%) translateY(0) scale(1); opacity: 1; } 100% { transform: translate(-50%, -50%) translateY(-100px) scale(0.8); opacity: 0; } }
+        .notification { position: fixed; bottom: 20px; right: 20px; background: rgba(9, 10, 16, 0.95); border: 1px solid #ff007f; box-shadow: 0 0 15px rgba(255, 0, 127, 0.3); border-radius: 8px; padding: 12px 20px; color: #fff; z-index: 1000; transform: translateY(100px); opacity: 0; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s; pointer-events: none; width: 300px; }
         .notification.show { transform: translateY(0); opacity: 1; }
-
         .notif-title { color: #ff007f; font-weight: bold; font-size: 13px; margin-bottom: 2px; }
-
         .notif-msg { font-size: 11px; color: #94a3b8; }
-
-        @media (max-width: 900px) {
-            body { flex-direction: column; overflow-y: auto; height: auto; }
-            .left-panel { height: 55vh; border-right: none; border-bottom: 1px solid rgba(255, 255, 255, 0.05); position: sticky; top: 0; z-index: 10; }
-            .right-panel { width: 100%; height: auto; }
-        }
+        @media (max-width: 900px) { body { flex-direction: column; overflow-y: auto; height: auto; } .left-panel { height: 55vh; position: sticky; top: 0; z-index: 10; } .right-panel { width: 100%; } }
     </style>
 </head>
 <body>
@@ -649,7 +88,6 @@
     <div class="left-panel">
         <h1 class="game-title tech-font">COSMIC CLICKER</h1>
         
-        <!-- 全銀河協力イベント -->
         <div class="coop-container">
             <div class="coop-title tech-font">GALACTIC MISSION: COOP CLICK EVENT</div>
             <div class="coop-bar-bg">
@@ -661,20 +99,16 @@
         <div class="stats-container">
             <div id="crystals-display" class="crystal-count tech-font">0</div>
             <div id="cps-display" class="cps-count">毎秒: 0 クリスタル</div>
-            <div id="buff-timer" class="buff-display tech-font">FRENZY ACTIVE (15s)</div>
         </div>
 
         <div class="crystal-wrapper">
             <div id="crystal-btn" class="crystal"></div>
         </div>
 
-        <!-- アクティビティログ ＆ チャット -->
+        <!-- チャット ＆ ログ -->
         <div class="log-panel">
             <div class="log-title tech-font">GALACTIC FEED & CHAT</div>
-            <div id="log-content" class="log-content">
-                <!-- ログとチャットメッセージがここに追加されます -->
-            </div>
-            <!-- チャット入力エリア -->
+            <div id="log-content" class="log-content"></div>
             <div class="chat-input-area">
                 <input type="text" id="chat-input" class="chat-input" placeholder="メッセージを入力..." maxlength="50" onkeydown="handleChatKey(event)">
                 <button class="chat-btn" onclick="sendChat()">送信</button>
@@ -693,480 +127,258 @@
         </div>
 
         <div class="tab-contents">
-            <!-- 施設タブ -->
-            <div id="tab-buildings" class="tab-pane active">
-                <div id="buildings-list"></div>
-            </div>
-
-            <!-- 強化タブ -->
-            <div id="tab-upgrades" class="tab-pane">
-                <div id="upgrades-list"></div>
-            </div>
-
-            <!-- ランキングタブ -->
+            <div id="tab-buildings" class="tab-pane active"><div id="buildings-list"></div></div>
+            <div id="tab-upgrades" class="tab-pane"><div id="upgrades-list"></div></div>
             <div id="tab-ranking" class="tab-pane">
                 <div class="ranking-header">
                     <h3 style="font-size: 15px;">銀河採掘ランキング</h3>
-                    <span id="connection-status" class="status-badge offline">OFFLINE (LOCAL AI)</span>
+                    <span id="connection-status" class="status-badge offline">CONNECTING...</span>
                 </div>
                 <div id="ranking-list" class="ranking-list"></div>
             </div>
-
-            <!-- 実績タブ -->
-            <div id="tab-achievements" class="tab-pane">
-                <div id="achievements-list"></div>
-            </div>
-
-            <!-- 管理タブ -->
+            <div id="tab-achievements" class="tab-pane"><div id="achievements-list"></div></div>
             <div id="tab-settings" class="tab-pane">
                 <div class="input-group">
-                    <label for="username-input">あなたの採掘者ニックネーム</label>
+                    <label for="username-input">あなたのニックネーム</label>
                     <input type="text" id="username-input" class="text-input" maxlength="15" onchange="changeUsername(this.value)">
                 </div>
-
-                <h3 style="margin-bottom: 10px; font-size: 14px;">ローカルデータ統計</h3>
+                <h3 style="margin-bottom: 10px; font-size: 14px;">サーバー同期統計</h3>
                 <div class="stats-list">
-                    <div class="stats-row">
-                        <span class="stats-label">累計採掘クリスタル</span>
-                        <span id="stat-total-crystals" class="tech-font">0</span>
-                    </div>
-                    <div class="stats-row">
-                        <span class="stats-label">手動クリック回数</span>
-                        <span id="stat-total-clicks" class="tech-font">0</span>
-                    </div>
-                    <div class="stats-row">
-                        <span class="stats-label">手動クリック生産量</span>
-                        <span id="stat-click-power" class="tech-font">1</span>
-                    </div>
-                    <div class="stats-row">
-                        <span class="stats-label">回収した宇宙隕石</span>
-                        <span id="stat-meteors" class="tech-font">0</span>
-                    </div>
+                    <div class="stats-row"><span class="stats-label">サーバー上クリスタル</span><span id="stat-total-crystals" class="tech-font">0</span></div>
+                    <div class="stats-row"><span class="stats-label">総クリック数</span><span id="stat-total-clicks" class="tech-font">0</span></div>
+                    <div class="stats-row"><span class="stats-label">クリック生産量</span><span id="stat-click-power" class="tech-font">1</span></div>
                 </div>
-
-                <button class="btn-action btn-save" onclick="saveGame(true)">手動セーブ</button>
-                <button class="btn-action" onclick="resetGame()">データ消去（リセット）</button>
+                <button class="btn-action" onclick="resetGame()">データをリセット</button>
             </div>
         </div>
     </div>
 
-    <!-- 通知 -->
     <div id="ach-notification" class="notification">
         <div class="notif-title tech-font">ACHIEVEMENT UNLOCKED</div>
         <div id="notif-message" class="notif-msg">実績を解除しました</div>
     </div>
 
-    <!-- メインのゲームロジックとMQTT制御 -->
     <script>
         // ==========================================
-        // 🌐 MQTT MULTIPLAYER CONFIGURATION
+        // 🛠️ CLOUDFLARE WORKER DEPLOYED URL
         // ==========================================
-        const MQTT_BROKER = 'wss://broker.emqx.io:8084/mqtt';
-        const MQTT_TOPIC = 'cosmic_clicker_p2p_v3/lobby';
+        // 取得していただいたあなた専用のURLを最初から適用しています！
+        const API_BASE_URL = 'https://cosmic-server.aixai-d-a-y-o-n.workers.dev'; 
 
-        let client = null;
-        let isOnline = false;
-        let activePlayers = {}; 
-
-        let userId = getOrCreateUserId();
-        let username = getOrCreateUsername();
-
-        // ==========================================
-        // GAME STATE & CONFIG
-        // ==========================================
-        let crystals = 0;
-        let totalCrystals = 0;
-        let totalClicks = 0;
-        let clickedMeteors = 0;
-        let baseClickValue = 1;
-        let clickValueUpgrades = 0;
-        let globalCpsMultiplier = 1;
-
-        let buffTimer = 0;
-        let buffMultiplier = 1;
+        let userId = localStorage.getItem('cosmic_worker_uid') || null;
+        let username = localStorage.getItem('cosmic_worker_username') || "Miner_" + Math.floor(Math.random() * 9000 + 1000);
+        
+        let clientCrystals = 0; 
+        let serverCrystals = 0; 
+        let serverCps = 0;
+        let serverClickPower = 1;
+        let localClicksQueue = 0; 
+        
         let lastUpdateTime = Date.now();
-        let lastSyncTime = 0;
+        let lastSyncTime = Date.now();
+        let isOnline = false;
 
-        const COOP_GOAL = 1000000;
-        let currentCoopClicks = 0;
-
-        // 施設
         let buildings = [
-            { id: 'miner', name: '自動採掘クローン', cost: 15, baseCost: 15, cps: 0.1, count: 0, multiplier: 1, desc: 'クローンが代わりに手掘りで作業します。' },
-            { id: 'drill', name: '採掘ドリル', cost: 100, baseCost: 100, cps: 1, count: 0, multiplier: 1, desc: '回転ドリルで結晶を自動破壊します。' },
-            { id: 'laser', name: 'プラズマレーザー', cost: 1100, baseCost: 1100, cps: 8, count: 0, multiplier: 1, desc: '超高熱レーザーで遠隔切削します。' },
-            { id: 'reactor', name: '熱融合炉', cost: 12000, baseCost: 12000, cps: 47, count: 0, multiplier: 1, desc: '熱源エネルギーを利用し大規模採掘。' },
-            { id: 'gravity', name: '重力濃縮器', cost: 130000, baseCost: 130000, cps: 260, count: 0, multiplier: 1, desc: '重力場を用いて結晶を引き寄せます。' },
-            { id: 'warp', name: '次元ワープ採掘機', cost: 1400000, baseCost: 1400000, cps: 1400, count: 0, multiplier: 1, desc: '平行世界から直接資源を転送します。' },
-            { id: 'timemachine', name: 'タイムマシン', cost: 20000000, baseCost: 20000000, cps: 7800, count: 0, multiplier: 1, desc: '未来で発掘されたクリスタルを持ってきます。' }
+            { id: 'miner', name: '自動採掘クローン', cost: 15, baseCost: 15, cps: 0.1, count: 0, desc: 'クローンが代わりに手掘りで作業します。' },
+            { id: 'drill', name: '採掘ドリル', cost: 100, baseCost: 100, cps: 1, count: 0, desc: '回転ドリルで結晶を自動破壊します。' },
+            { id: 'laser', name: 'プラズマレーザー', cost: 1100, baseCost: 1100, cps: 8, count: 0, desc: '超高熱レーザーで遠隔切削します。' },
+            { id: 'reactor', name: '熱融合炉', cost: 12000, baseCost: 12000, cps: 47, count: 0, desc: '熱源エネルギーを利用し大規模採掘。' },
+            { id: 'gravity', name: '重力濃縮器', cost: 130000, baseCost: 130000, cps: 260, count: 0, desc: '重力場を用いて結晶を引き寄せます。' },
+            { id: 'warp', name: '次元ワープ採掘機', cost: 1400000, baseCost: 1400000, cps: 1400, count: 0, desc: '平行世界から直接資源を転送します。' },
+            { id: 'timemachine', name: 'タイムマシン', cost: 20000000, baseCost: 20000000, cps: 7800, count: 0, desc: '未来で発掘されたクリスタルを持ってきます。' }
         ];
 
-        // 強化
         let upgrades = [
-            { id: 'up_click_1', name: '強化グローブ', cost: 100, purchased: false, type: 'click_add', value: 1, desc: 'クリックパワーが恒久的に +1' },
-            { id: 'up_click_2', name: '精密ピッケル', cost: 500, purchased: false, type: 'click_add', value: 5, desc: 'クリックパワーが恒久的に +5' },
-            { id: 'up_click_3', name: 'ナノレーザー', cost: 10000, purchased: false, type: 'click_add', value: 50, desc: 'クリックパワーが恒久的に +50' },
-            { id: 'up_click_4', name: '空間破砕振動子', cost: 100000, purchased: false, type: 'click_add', value: 500, desc: 'クリックパワーが恒久的に +500' },
-            { id: 'up_b_miner', name: '超精密モーター', cost: 400, purchased: false, type: 'building_mult', targetId: 'miner', value: 2, desc: '「自動採掘クローン」の効率が 2倍 に上昇' },
-            { id: 'up_b_drill', name: '超硬合金ブレード', cost: 2000, purchased: false, type: 'building_mult', targetId: 'drill', value: 2, desc: '「採掘ドリル」の効率が 2倍 に上昇' },
-            { id: 'up_b_laser', name: '収束レンズ群', cost: 22000, purchased: false, type: 'building_mult', targetId: 'laser', value: 2, desc: '「プラズマレーザー」の効率が 2倍 に上昇' },
-            { id: 'up_g_1', name: '宇宙線共鳴フィールド', cost: 50000, purchased: false, type: 'global_mult', value: 1.2, desc: '全体の秒間自動生産力(CPS)が 1.2倍 に上昇' },
-            { id: 'up_g_2', name: 'シンギュラリティ機関', cost: 1500000, purchased: false, type: 'global_mult', value: 1.5, desc: '全体の秒間自動生産力(CPS)が 1.5倍 に上昇' }
+            { id: 'up_click_1', name: '強化グローブ', cost: 100, purchased: false, desc: 'クリックパワーが恒久的に +1' },
+            { id: 'up_click_2', name: '精密ピッケル', cost: 500, purchased: false, desc: 'クリックパワーが恒久的に +5' },
+            { id: 'up_click_3', name: 'ナノレーザー', cost: 10000, purchased: false, desc: 'クリックパワーが恒久的に +50' },
+            { id: 'up_click_4', name: '空間破砕振動子', cost: 100000, purchased: false, desc: 'クリックパワーが恒久的に +500' },
+            { id: 'up_b_miner', name: '超精密モーター', cost: 400, purchased: false, desc: '「自動採掘クローン」の効率が 2倍 に上昇' },
+            { id: 'up_b_drill', name: '超硬合金ブレード', cost: 2000, purchased: false, desc: '「採掘ドリル」の効率が 2倍 に上昇' },
+            { id: 'up_b_laser', name: '収束レンズ群', cost: 22000, purchased: false, desc: '「プラズマレーザー」の効率が 2倍 に上昇' },
+            { id: 'up_g_1', name: '宇宙線共鳴フィールド', cost: 50000, purchased: false, desc: '全体の秒間自動生産力(CPS)が 1.2倍 に上昇' },
+            { id: 'up_g_2', name: 'シンギュラリティ機関', cost: 1500000, purchased: false, desc: '全体の秒間自動生産力(CPS)が 1.5倍 に上昇' }
         ];
 
-        // 実績
         let achievements = [
-            { id: 'ach_1', name: '駆け出し採掘者', desc: '手動クリックを10回行う。', unlocked: false, check: () => totalClicks >= 10 },
-            { id: 'ach_2', name: '最初の労働者', desc: '自動採掘クローンを1個購入する。', unlocked: false, check: () => getBuildingCount('miner') >= 1 },
-            { id: 'ach_3', name: '中堅工場', desc: '施設を累計15個購入する', unlocked: false, check: () => getTotalBuildings() >= 15 },
-            { id: 'ach_4', name: '宇宙長者', desc: '累計で 10,000 クリスタルを発掘。', unlocked: false, check: () => totalCrystals >= 10000 },
-            { id: 'ach_5', name: '隕石ハンター', desc: '宇宙隕石を初めてクリックする。', unlocked: false, check: () => clickedMeteors >= 1 },
-            { id: 'ach_6', name: '自動化の極み', desc: '秒間生産量(CPS)が 1,000 を突破。', unlocked: false, check: () => getCps() >= 1000 },
-            { id: 'ach_7', name: 'コズミック・レジェンド', desc: '累計で 10,000,000 クリスタルを発掘。', unlocked: false, check: () => totalCrystals >= 10000000 }
+            { id: 'ach_1', name: '駆け出し採掘者', desc: '手動クリックを10回行う。', unlocked: false, check: (p) => p.totalClicks >= 10 },
+            { id: 'ach_2', name: '最初の労働者', desc: '自動採掘クローンを1個以上所有。', unlocked: false, check: (p) => (p.buildings.miner || 0) >= 1 },
+            { id: 'ach_3', name: '中堅工場', desc: '施設を合計15個以上所有。', unlocked: false, check: (p) => Object.values(p.buildings).reduce((a,b)=>a+b,0) >= 15 },
+            { id: 'ach_4', name: '宇宙長者', desc: '累計で 10,000 クリスタルを発掘。', unlocked: false, check: (p) => p.totalCrystals >= 10000 },
+            { id: 'ach_6', name: '自動化の極み', desc: '秒間生産量(CPS)が 1,000 を突破。', unlocked: false, check: (p) => p.cps >= 1000 },
+            { id: 'ach_7', name: 'コズミック・レジェンド', desc: '累計で 10,000,000 クリスタルを発掘。', unlocked: false, check: (p) => p.totalCrystals >= 10000000 }
         ];
 
-        // ==========================================
-        // 🤖 疑似オンライン用（オフライン時のみ稼働）
-        // ==========================================
-        const mockNames = ["StarMiner_99", "GalaxyX", "Asteroid_Destroyer", "DeepSpaceWorker", "QuantumCat", "NovaGlow"];
-        let mockPlayers = mockNames.map((name, index) => ({
-            userId: "mock_" + index,
-            username: name,
-            crystals: 500 + index * 400,
-            cps: 1.5 + index * 5,
-            totalClicks: 20 + index * 10,
-            totalCrystals: 1000 + index * 1000,
-            lastActive: Date.now()
-        }));
-        let mockInterval = null;
-
-        // ==========================================
-        // CORE LIFECYCLE & LOOPS
-        // ==========================================
-        window.onload = function() {
+        window.onload = async function() {
             document.getElementById('username-input').value = username;
-            loadGame();
-            renderBuildings();
-            renderUpgrades();
-            renderAchievements();
-            setupEventListeners();
-            scheduleMeteor();
+            await initPlayer();
 
-            // オンライン（MQTT）への接続を試行
-            connectToMultiplayer();
-
-            // 15秒ごとのローカル自動セーブ
-            setInterval(() => saveGame(false), 15000);
-
-            // 🔄 裏画面（非アクティブタブ）対応専用の1秒周期タイマー
-            // 画面が非表示のときだけ、このタイマーで自動生産と同期を維持します。
             setInterval(() => {
                 if (document.hidden) {
                     const now = Date.now();
                     const dt = (now - lastUpdateTime) / 1000;
                     lastUpdateTime = now;
-
-                    const currentCps = getCps();
-                    crystals += currentCps * dt;
-                    totalCrystals += currentCps * dt;
-
-                    // 3秒に1回相当でパブリッシュ
-                    if (now - lastSyncTime > 3000) {
-                        publishSyncData();
-                        cleanInactivePlayers();
-                        lastSyncTime = now;
-                    }
+                    clientCrystals += serverCps * dt;
                 }
             }, 1000);
+
+            setInterval(async () => {
+                await syncWithServer();
+            }, 2000);
 
             requestAnimationFrame(gameLoop);
         };
 
-        function setupEventListeners() {
-            const crystalBtn = document.getElementById('crystal-btn');
-            crystalBtn.addEventListener('click', (e) => {
-                const power = getClickPower();
-                crystals += power;
-                totalCrystals += power;
-                totalClicks++;
+        async function initPlayer() {
+            if (API_BASE_URL === 'YOUR_CLOUDFLARE_WORKERS_URL') {
+                document.getElementById('connection-status').textContent = "Workers URL未設定";
+                return;
+            }
 
-                showPopup(`+${formatNumber(power)}`, e.clientX, e.clientY);
-                updateUI();
-            });
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/init`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await response.json();
+                
+                userId = data.userId;
+                localStorage.setItem('cosmic_worker_uid', userId);
+                localStorage.setItem('cosmic_worker_username', data.username);
+                
+                applyServerState(data);
+                isOnline = true;
+                document.getElementById('connection-status').textContent = "ONLINE";
+                document.getElementById('connection-status').className = "status-badge online";
+            } catch (e) {
+                console.error("サーバーへの接続に失敗しました。", e);
+                document.getElementById('connection-status').textContent = "サーバー接続失敗";
+            }
         }
 
-        // 描画を伴うメインループ（表画面にいる間のみ高速回転）
+        async function syncWithServer() {
+            if (!isOnline) return;
+            try {
+                const sendClicks = localClicksQueue;
+                localClicksQueue = 0; 
+
+                const response = await fetch(`${API_BASE_URL}/api/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, clicks: sendClicks, username })
+                });
+                const data = await response.json();
+                
+                applyServerState(data.player);
+                updateMultiplayUI(data.ranking);
+            } catch (e) {
+                console.error("同期失敗", e);
+            }
+        }
+
+        function applyServerState(player) {
+            serverCrystals = player.crystals;
+            clientCrystals = player.crystals; 
+            serverCps = player.cps;
+            serverClickPower = player.clickPower;
+
+            buildings.forEach(b => {
+                b.count = player.buildings[b.id] || 0;
+                b.cost = Math.floor(b.baseCost * Math.pow(1.15, b.count));
+            });
+
+            upgrades.forEach(u => {
+                u.purchased = player.upgrades[u.id] || false;
+            });
+
+            renderBuildings();
+            renderUpgrades();
+            checkAchievements(player);
+            
+            document.getElementById('stat-total-crystals').textContent = formatNumber(player.totalCrystals);
+            document.getElementById('stat-total-clicks').textContent = player.totalClicks.toLocaleString();
+            document.getElementById('stat-click-power').textContent = formatNumber(player.clickPower);
+        }
+
         function gameLoop() {
             const now = Date.now();
             const dt = (now - lastUpdateTime) / 1000;
             lastUpdateTime = now;
 
-            // バフタイマー
-            if (buffTimer > 0) {
-                buffTimer -= dt;
-                if (buffTimer <= 0) {
-                    buffTimer = 0;
-                    buffMultiplier = 1;
-                    document.getElementById('crystal-btn').classList.remove('frenzy-active');
-                    document.getElementById('buff-timer').classList.remove('active');
-                } else {
-                    document.getElementById('buff-timer').textContent = `FRENZY 3倍中! (${buffTimer.toFixed(1)}s)`;
-                }
-            }
-
-            // 表画面にいる間のみ生産処理を走らせる（裏画面の時は上のsetIntervalで対応）
             if (!document.hidden) {
-                const currentCps = getCps();
-                crystals += currentCps * dt;
-                totalCrystals += currentCps * dt;
-
-                checkAchievements();
+                clientCrystals += serverCps * dt;
                 updateUI();
-
-                // 3秒に1回の同期判定
-                if (now - lastSyncTime > 3000) {
-                    publishSyncData();
-                    cleanInactivePlayers(); 
-                    lastSyncTime = now;
-                }
             }
 
             requestAnimationFrame(gameLoop);
         }
 
-        // ==========================================
-        // 🌐 MQTT MULTIPLAYER NETWORK LOGIC
-        // ==========================================
-        function connectToMultiplayer() {
-            const statusBadge = document.getElementById('connection-status');
-            
+        function updateUI() {
+            document.getElementById('crystals-display').textContent = formatNumber(clientCrystals);
+            document.getElementById('cps-display').textContent = `毎秒: ${formatNumber(serverCps)} クリスタル`;
+            updateButtonStates();
+        }
+
+        window.buyBuilding = async function(id) {
+            if (!isOnline) return;
             try {
-                client = mqtt.connect(MQTT_BROKER, {
-                    connectTimeout: 4000,
-                    reconnectPeriod: 5000
+                const response = await fetch(`${API_BASE_URL}/api/buy_building`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, buildingId: id })
                 });
-
-                client.on('connect', () => {
-                    isOnline = true;
-                    statusBadge.className = 'status-badge online';
-                    statusBadge.textContent = 'ONLINE';
-                    
-                    if (mockInterval) clearInterval(mockInterval);
-                    activePlayers = {}; 
-
-                    client.subscribe(MQTT_TOPIC, (err) => {
-                        if (!err) {
-                            postActivityLog("宇宙空間にワープ接続しました");
-                            publishSyncData();
-                        }
-                    });
-                });
-
-                client.on('message', (topic, message) => {
-                    if (topic !== MQTT_TOPIC) return;
-                    try {
-                        const payload = JSON.parse(message.toString());
-                        if (payload.userId === userId) return; 
-
-                        if (payload.type === 'sync') {
-                            activePlayers[payload.userId] = {
-                                username: payload.username,
-                                crystals: payload.crystals,
-                                cps: payload.cps,
-                                totalClicks: payload.totalClicks,
-                                lastActive: Date.now()
-                            };
-                            updateMultiplayStats();
-                        } else if (payload.type === 'event') {
-                            addLogToUI(payload.username, payload.text, false);
-                        } else if (payload.type === 'chat') {
-                            addLogToUI(payload.username, payload.text, true);
-                        }
-                    } catch (e) {
-                        console.error("ネットワークメッセージの解析に失敗しました", e);
-                    }
-                });
-
-                client.on('close', () => {
-                    if (isOnline) {
-                        isOnline = false;
-                        initMockConnection(); 
-                    }
-                });
-
-                client.on('error', (err) => {
-                    console.warn("ネットワーク接続エラー、疑似オンラインに切り替えます。", err);
-                    if (!isOnline) initMockConnection();
-                });
-
-                setTimeout(() => {
-                    if (!isOnline) {
-                        console.log("接続タイムアウト。疑似オンラインへフォールバックします。");
-                        initMockConnection();
-                    }
-                }, 4000);
-
+                const data = await response.json();
+                applyServerState(data.player);
+                updateMultiplayUI(data.ranking);
             } catch (e) {
-                console.warn("MQTTセットアップ失敗、疑似モードに切り替えます。", e);
-                initMockConnection();
+                console.error("購入エラー", e);
             }
         }
 
-        // 同期データの送信
-        function publishSyncData() {
-            if (!isOnline || !client || !client.connected) return;
-
-            const syncMsg = {
-                type: 'sync',
-                userId: userId,
-                username: username,
-                crystals: Math.floor(crystals),
-                cps: getCps(),
-                totalClicks: totalClicks
-            };
-
-            client.publish(MQTT_TOPIC, JSON.stringify(syncMsg));
-        }
-
-        // システムログメッセージの送信
-        function postActivityLog(text) {
-            if (isOnline && client && client.connected) {
-                const eventMsg = {
-                    type: 'event',
-                    userId: userId,
-                    username: username,
-                    text: text
-                };
-                client.publish(MQTT_TOPIC, JSON.stringify(eventMsg));
+        window.buyUpgrade = async function(id) {
+            if (!isOnline) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/buy_upgrade`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, upgradeId: id })
+                });
+                const data = await response.json();
+                applyServerState(data.player);
+                updateMultiplayUI(data.ranking);
+            } catch (e) {
+                console.error("アップグレードエラー", e);
             }
-            addLogToUI(username, text, false);
         }
 
-        // 💬 チャットメッセージの送信
-        window.sendChat = function() {
+        window.sendChat = async function() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
-            if (text === '') return;
+            if (text === '' || !isOnline) return;
 
-            if (isOnline && client && client.connected) {
-                const chatMsg = {
-                    type: 'chat',
-                    userId: userId,
-                    username: username,
-                    text: text
-                };
-                client.publish(MQTT_TOPIC, JSON.stringify(chatMsg));
-            }
-            addLogToUI(username, text, true); // 自分自身の画面に即時反映
-            input.value = '';
-        }
-
-        window.handleChatKey = function(event) {
-            if (event.key === 'Enter') {
-                window.sendChat();
-            }
-        }
-
-        // ⏱️ 生存確認判定
-        // ブラウザのバックグラウンド制限で通信が遅れることを考慮し、判定の猶予を「45秒」に緩和
-        function cleanInactivePlayers() {
-            const now = Date.now();
-            let changed = false;
-            Object.keys(activePlayers).forEach(id => {
-                if (id.startsWith('mock_')) return;
-
-                if (now - activePlayers[id].lastActive > 45000) {
-                    delete activePlayers[id];
-                    changed = true;
-                }
-            });
-            if (changed) {
-                updateMultiplayStats();
-            }
-        }
-
-        // ==========================================
-        // 🤖 疑似オンライン（AI制御）
-        // ==========================================
-        function initMockConnection() {
-            if (mockInterval) return; 
-            
-            const statusBadge = document.getElementById('connection-status');
-            statusBadge.className = 'status-badge offline';
-            statusBadge.textContent = 'PSEUDO-ONLINE (LOCAL AI)';
-
-            mockInterval = setInterval(() => {
-                mockPlayers.forEach(p => {
-                    p.crystals += p.cps * 3;
-                    p.totalCrystals += p.cps * 3;
-                    p.totalClicks += Math.floor(p.cps * 0.1) + 1;
-
-                    if (Math.random() < 0.08) {
-                        const randomB = buildings[Math.floor(Math.random() * 4)];
-                        p.cps += randomB.cps;
-                        p.crystals = Math.max(0, p.crystals - randomB.cost * 0.5);
-                        addLogToUI(p.username, `${randomB.name} を購入しました！`, false);
-                    }
-                    if (Math.random() < 0.04) {
-                        p.crystals += p.cps * 100;
-                        addLogToUI(p.username, `隕石を回収しました！`, false);
-                    }
-
-                    activePlayers[p.userId] = {
-                        username: p.username,
-                        crystals: p.crystals,
-                        cps: p.cps,
-                        totalClicks: p.totalClicks,
-                        lastActive: Date.now()
-                    };
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, text })
                 });
-
-                updateMultiplayStats();
-            }, 3000);
-        }
-
-        // ==========================================
-        // MULTIPLAY STATISTICS & UI REBUILD
-        // ==========================================
-        function updateMultiplayStats() {
-            const playerList = Object.keys(activePlayers).map(id => activePlayers[id]);
-            playerList.push({
-                userId: userId,
-                username: username,
-                crystals: crystals,
-                cps: getCps(),
-                totalClicks: totalClicks
-            });
-
-            const onlineCount = playerList.length;
-            const statusBadge = document.getElementById('connection-status');
-            if (isOnline) {
-                statusBadge.textContent = `ONLINE (${onlineCount})`;
-                statusBadge.className = 'status-badge online';
-            } else {
-                statusBadge.textContent = `PSEUDO-ONLINE (${onlineCount})`;
-                statusBadge.className = 'status-badge offline';
+                const data = await response.json();
+                renderFeed(data.feed);
+                input.value = '';
+            } catch (e) {
+                console.error("チャット送信失敗", e);
             }
-
-            const totalCoopClicks = playerList.reduce((sum, p) => sum + (p.totalClicks || 0), 0);
-            currentCoopClicks = totalCoopClicks;
-            updateCoopUI();
-
-            playerList.sort((a, b) => b.crystals - a.crystals);
-            updateRankingUI(playerList);
         }
 
-        function updateRankingUI(list) {
+        function updateMultiplayUI(rankingData) {
             const container = document.getElementById('ranking-list');
             container.innerHTML = '';
-
-            list.slice(0, 10).forEach((p, idx) => {
+            rankingData.ranking.forEach((p, idx) => {
                 const el = document.createElement('div');
                 el.className = `ranking-item ${p.userId === userId ? 'self' : ''}`;
-                
-                const isTop = idx < 3;
                 el.innerHTML = `
-                    <div class="rank-number ${isTop ? 'top-rank' : ''} tech-font">#${idx + 1}</div>
+                    <div class="rank-number ${idx < 3 ? 'top-rank' : ''} tech-font">#${idx + 1}</div>
                     <div class="rank-name">${p.username}</div>
                     <div class="rank-values">
                         <div class="rank-crystals tech-font">${formatNumber(p.crystals)}</div>
@@ -1175,200 +387,64 @@
                 `;
                 container.appendChild(el);
             });
-        }
 
-        function updateCoopUI() {
             const bar = document.getElementById('coop-bar');
-            const percent = Math.min(100, (currentCoopClicks / COOP_GOAL) * 100);
+            const percent = Math.min(100, (rankingData.coopClicks / 1000000) * 100);
             bar.style.width = `${percent}%`;
-
-            document.getElementById('coop-stats').textContent = `銀河累計クリック: ${currentCoopClicks.toLocaleString()} / ${COOP_GOAL.toLocaleString()} (${percent.toFixed(2)}%)`;
-
-            if (currentCoopClicks >= COOP_GOAL) {
-                globalCpsMultiplier = 1.5; 
-            }
+            document.getElementById('coop-stats').textContent = `銀河累計クリック: ${rankingData.coopClicks.toLocaleString()} / 1,000,000 (${percent.toFixed(2)}%)`;
         }
 
-        // チャットとシステムメッセージを色分けしてログへ追加
-        function addLogToUI(user, text, isChat = false) {
+        function renderFeed(feed) {
             const container = document.getElementById('log-content');
-            const item = document.createElement('div');
-            item.className = 'log-item';
-            
-            if (isChat) {
-                // 通常チャット：白テキスト、ユーザー名ブルー
-                item.innerHTML = `<strong style="color: #00f2fe;">${user}</strong>: <span style="color: #ffffff;">${text}</span>`;
-            } else {
-                // システムログ：紫色の[システム]表記、斜体文字
-                item.innerHTML = `<strong style="color: #c084fc;">[システム] ${user}</strong>: <span style="color: #94a3b8; font-style: italic;">${text}</span>`;
-            }
-            
-            container.appendChild(item);
-
-            // メッセージ送信時に最新位置へ自動スクロール
+            container.innerHTML = '';
+            feed.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'log-item';
+                if (item.isChat) {
+                    el.innerHTML = `<strong style="color:#00f2fe;">${item.username}</strong>: <span style="color:#ffffff;">${item.text}</span>`;
+                } else {
+                    el.innerHTML = `<strong style="color:#c084fc;">[システム] ${item.username}</strong>: <span style="color:#94a3b8; font-style:italic;">${item.text}</span>`;
+                }
+                container.appendChild(el);
+            });
             container.scrollTop = container.scrollHeight;
-
-            // 表示件数が多すぎる場合は、メモリ節約のため古いログから削除（最大50件）
-            while (container.childNodes.length > 50) {
-                container.removeChild(container.firstChild);
-            }
         }
 
-        // ==========================================
-        // SYSTEM CONTROLS (GLOBAL SCOPE)
-        // ==========================================
-        window.switchTab = function(tabId) {
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+        const crystalBtn = document.getElementById('crystal-btn');
+        crystalBtn.addEventListener('click', (e) => {
+            clientCrystals += serverClickPower;
+            localClicksQueue++; 
 
-            const targetBtn = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
-            if (targetBtn) targetBtn.classList.add('active');
-
-            const targetPane = document.getElementById(`tab-${tabId}`);
-            if (targetPane) targetPane.classList.add('active');
-        }
-
-        window.buyBuilding = function(id) {
-            const b = buildings.find(x => x.id === id);
-            if (!b || crystals < b.cost) return;
-
-            crystals -= b.cost;
-            b.count++;
-            b.cost = Math.floor(b.baseCost * Math.pow(1.15, b.count));
-
-            renderBuildings();
+            showPopup(`+${formatNumber(serverClickPower)}`, e.clientX, e.clientY);
             updateUI();
-            
-            if (b.cost > 1000) {
-                postActivityLog(`${b.name} を購入しました！`);
-            }
-        }
+        });
 
-        window.buyUpgrade = function(id) {
-            const u = upgrades.find(x => x.id === id);
-            if (!u || u.purchased || crystals < u.cost) return;
-
-            crystals -= u.cost;
-            u.purchased = true;
-
-            if (u.type === 'click_add') {
-                clickValueUpgrades += u.value;
-            } else if (u.type === 'building_mult') {
-                const target = buildings.find(b => b.id === u.targetId);
-                if (target) target.multiplier *= u.value;
-            } else if (u.type === 'global_mult') {
-                globalCpsMultiplier *= u.value;
-            }
-
-            renderBuildings();
-            renderUpgrades();
-            updateUI();
-            
-            postActivityLog(`研究技術「${u.name}」を実用化しました！`);
-        }
+        window.handleChatKey = function(e) {
+            if (e.key === 'Enter') sendChat();
+        };
 
         window.changeUsername = function(newVal) {
             if (!newVal || newVal.trim() === '') return;
-            const oldName = username;
             username = newVal.trim();
-            localStorage.setItem('cosmic_clicker_username', username);
-            postActivityLog(`${oldName} が名前を ${username} に変更しました`);
-            publishSyncData();
-        }
-
-        window.saveGame = function(isManual = false) {
-            const saveData = {
-                crystals,
-                totalCrystals,
-                totalClicks,
-                clickedMeteors,
-                clickValueUpgrades,
-                globalCpsMultiplier,
-                buildings: buildings.map(b => ({ id: b.id, count: b.count, cost: b.cost, multiplier: b.multiplier })),
-                upgrades: upgrades.map(u => ({ id: u.id, purchased: u.purchased })),
-                achievements: achievements.map(a => ({ id: a.id, unlocked: a.unlocked }))
-            };
-
-            localStorage.setItem('cosmic_clicker_save_v3', JSON.stringify(saveData));
-            if (isManual) alert('進行状況を保存しました！');
-        }
+            localStorage.setItem('cosmic_worker_username', username);
+            syncWithServer();
+        };
 
         window.resetGame = function() {
-            if (confirm('ローカルの全セーブデータを削除し再起動しますか？')) {
-                localStorage.removeItem('cosmic_clicker_save_v3');
-                localStorage.removeItem('cosmic_clicker_username');
-                localStorage.removeItem('cosmic_clicker_uid');
+            if (confirm('全てのデータをリセットしますか？')) {
+                localStorage.clear();
                 location.reload();
             }
-        }
+        };
 
-        // ==========================================
-        // GAMEPLAY FUNCTIONS
-        // ==========================================
-        function getCps() {
-            let total = 0;
-            buildings.forEach(b => {
-                total += b.count * b.cps * b.multiplier;
-            });
-            return total * globalCpsMultiplier * buffMultiplier;
-        }
-
-        function getClickPower() {
-            return (baseClickValue + clickValueUpgrades) * (buffMultiplier === 3 ? 3 : 1);
-        }
-
-        function getBuildingCount(id) {
-            const b = buildings.find(x => x.id === id);
-            return b ? b.count : 0;
-        }
-
-        function getTotalBuildings() {
-            return buildings.reduce((sum, b) => sum + b.count, 0);
-        }
-
-        function updateUI() {
-            document.getElementById('crystals-display').textContent = formatNumber(crystals);
-            document.getElementById('cps-display').textContent = `毎秒: ${formatNumber(getCps())} クリスタル`;
-            
-            document.getElementById('stat-total-crystals').textContent = formatNumber(totalCrystals);
-            document.getElementById('stat-total-clicks').textContent = totalClicks.toLocaleString();
-            document.getElementById('stat-click-power').textContent = formatNumber(getClickPower());
-            document.getElementById('stat-meteors').textContent = clickedMeteors;
-
-            updateButtonStates();
-        }
-
-        function updateButtonStates() {
-            buildings.forEach(b => {
-                const btn = document.getElementById(`btn-${b.id}`);
-                if (btn) {
-                    if (crystals >= b.cost) btn.classList.remove('disabled');
-                    else btn.classList.add('disabled');
-                }
-            });
-
-            upgrades.forEach(u => {
-                const btn = document.getElementById(`btn-${u.id}`);
-                if (btn) {
-                    if (crystals >= u.cost) btn.classList.remove('disabled');
-                    else btn.classList.add('disabled');
-                }
-            });
-        }
-
-        function showPopup(text, x, y, customColor = '') {
-            const popup = document.createElement('div');
-            popup.className = 'click-popup tech-font';
-            popup.textContent = text;
-            popup.style.left = `${x}px`;
-            popup.style.top = `${y}px`;
-            if (customColor) {
-                popup.style.color = customColor;
-                popup.style.textShadow = `0 0 6px ${customColor}`;
-            }
-            document.body.appendChild(popup);
-            setTimeout(() => popup.remove(), 800);
-        }
+        window.switchTab = function(tabId) {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+            const targetBtn = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
+            if (targetBtn) targetBtn.classList.add('active');
+            const targetPane = document.getElementById(`tab-${tabId}`);
+            if (targetPane) targetPane.classList.add('active');
+        };
 
         function renderBuildings() {
             const container = document.getElementById('buildings-list');
@@ -1382,7 +458,7 @@
                     <div class="building-info">
                         <div class="building-name">${b.name}</div>
                         <div class="building-desc">${b.desc}</div>
-                        <div class="building-stats">効率: +${formatNumber(b.cps * b.multiplier)}/s</div>
+                        <div class="building-stats">効率: +${formatNumber(b.cps)}/s</div>
                     </div>
                     <div class="building-cost-box">
                         <div class="building-cost tech-font">${formatNumber(b.cost)}</div>
@@ -1418,10 +494,31 @@
             }
         }
 
-        function renderAchievements() {
+        function updateButtonStates() {
+            buildings.forEach(b => {
+                const btn = document.getElementById(`btn-${b.id}`);
+                if (btn) {
+                    if (clientCrystals >= b.cost) btn.classList.remove('disabled');
+                    else btn.classList.add('disabled');
+                }
+            });
+            upgrades.forEach(u => {
+                const btn = document.getElementById(`btn-${u.id}`);
+                if (btn) {
+                    if (clientCrystals >= u.cost) btn.classList.remove('disabled');
+                    else btn.classList.add('disabled');
+                }
+            });
+        }
+
+        function checkAchievements(player) {
             const container = document.getElementById('achievements-list');
             container.innerHTML = '';
             achievements.forEach(ach => {
+                if (!ach.unlocked && ach.check(player)) {
+                    ach.unlocked = true;
+                    showAchievementNotification(ach.name, ach.desc);
+                }
                 const el = document.createElement('div');
                 el.className = `achievement-item ${ach.unlocked ? 'unlocked' : ''}`;
                 el.innerHTML = `
@@ -1435,16 +532,6 @@
             });
         }
 
-        function checkAchievements() {
-            achievements.forEach(ach => {
-                if (!ach.unlocked && ach.check()) {
-                    ach.unlocked = true;
-                    showAchievementNotification(ach.name, ach.desc);
-                    renderAchievements();
-                }
-            });
-        }
-
         function showAchievementNotification(title, desc) {
             const notif = document.getElementById('ach-notification');
             document.getElementById('notif-message').textContent = `${title} (${desc})`;
@@ -1452,104 +539,14 @@
             setTimeout(() => notif.classList.remove('show'), 4000);
         }
 
-        function spawnMeteor() {
-            if (document.querySelector('.meteor')) return;
-            const meteor = document.createElement('div');
-            meteor.className = 'meteor';
-            const x = Math.random() * (window.innerWidth - 100) + 50;
-            const y = Math.random() * (window.innerHeight - 200) + 70;
-            meteor.style.left = `${x}px`;
-            meteor.style.top = `${y}px`;
-
-            meteor.addEventListener('click', (e) => {
-                e.stopPropagation();
-                clickedMeteors++;
-                meteor.remove();
-
-                if (Math.random() < 0.5) {
-                    const bonus = Math.max(50, getCps() * 180);
-                    crystals += bonus;
-                    totalCrystals += bonus;
-                    showPopup(`隕石回収! +${formatNumber(bonus)}`, e.clientX, e.clientY, '#ff007f');
-                    postActivityLog(`宇宙をさまよう超純度隕石を回収しました！`);
-                } else {
-                    buffTimer = 15;
-                    buffMultiplier = 3;
-                    document.getElementById('crystal-btn').classList.add('frenzy-active');
-                    document.getElementById('buff-timer').classList.add('active');
-                    showPopup(`FRENZY (3倍)!`, e.clientX, e.clientY, '#ff007f');
-                    postActivityLog(`時空のワームホールをこじ開けてFRENZYを展開！`);
-                }
-                updateUI();
-            });
-
-            document.body.appendChild(meteor);
-            setTimeout(() => { if (meteor.parentNode) meteor.remove(); }, 10000);
-        }
-
-        function scheduleMeteor() {
-            const nextTime = (Math.random() * 30 + 30) * 1000;
-            setTimeout(() => { spawnMeteor(); scheduleMeteor(); }, nextTime);
-        }
-
-        // ==========================================
-        // LOCAL STORAGE & DATA CONTROLLERS
-        // ==========================================
-        function getOrCreateUserId() {
-            let uid = localStorage.getItem('cosmic_clicker_uid');
-            if (!uid) {
-                uid = 'u_' + Math.random().toString(36).substring(2, 11);
-                localStorage.setItem('cosmic_clicker_uid', uid);
-            }
-            return uid;
-        }
-
-        function getOrCreateUsername() {
-            let name = localStorage.getItem('cosmic_clicker_username');
-            if (!name) {
-                name = 'Miner_' + Math.floor(Math.random() * 9000 + 1000);
-                localStorage.setItem('cosmic_clicker_username', name);
-            }
-            return name;
-        }
-
-        function loadGame() {
-            const savedStr = localStorage.getItem('cosmic_clicker_save_v3');
-            if (!savedStr) return;
-            try {
-                const data = JSON.parse(savedStr);
-                if (data.crystals !== undefined) crystals = data.crystals;
-                if (data.totalCrystals !== undefined) totalCrystals = data.totalCrystals;
-                if (data.totalClicks !== undefined) totalClicks = data.totalClicks;
-                if (data.clickedMeteors !== undefined) clickedMeteors = data.clickedMeteors;
-                if (data.clickValueUpgrades !== undefined) clickValueUpgrades = data.clickValueUpgrades;
-                if (data.globalCpsMultiplier !== undefined) globalCpsMultiplier = data.globalCpsMultiplier;
-
-                if (data.buildings) {
-                    data.buildings.forEach(sb => {
-                        const b = buildings.find(x => x.id === sb.id);
-                        if (b) {
-                            b.count = sb.count || 0;
-                            b.cost = sb.cost || b.baseCost;
-                            b.multiplier = sb.multiplier || 1;
-                        }
-                    });
-                }
-                if (data.upgrades) {
-                    data.upgrades.forEach(su => {
-                        const u = upgrades.find(x => x.id === su.id);
-                        if (u) u.purchased = su.purchased || false;
-                    });
-                }
-                if (data.achievements) {
-                    data.achievements.forEach(sa => {
-                        const a = achievements.find(x => x.id === sa.id);
-                        if (a) a.unlocked = sa.unlocked || false;
-                    });
-                }
-            } catch (e) {
-                console.error("ローカルデータの復元中にエラーが発生しました", e);
-            }
+        function showPopup(text, x, y) {
+            const popup = document.createElement('div');
+            popup.className = 'click-popup tech-font';
+            popup.textContent = text;
+            popup.style.left = `${x}px`;
+            popup.style.top = `${y}px`;
+            document.body.appendChild(popup);
+            setTimeout(() => popup.remove(), 800);
         }
 
         function formatNumber(num, decimals = 1) {
